@@ -319,7 +319,7 @@
   },
   "COMPOSITE_TIME" : {
     "record_in_processes": ["main", "content", "gpu"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "rhunt@mozilla.com"],
     "expires_in_version": "never",
     "description": "Composite times in milliseconds",
@@ -1234,7 +1234,7 @@
   },
   "MEMORY_TOTAL": {
     "record_in_processes": ["main"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["memshrink-telemetry-alerts@mozilla.com", "erahm@mozilla.com"],
     "bug_numbers": [1198209, 1511918],
     "expires_in_version": "never",
@@ -1380,7 +1380,7 @@
   },
   "MEMORY_HEAP_ALLOCATED": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["memshrink-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
@@ -11548,7 +11548,7 @@
   },
   "NETWORK_CACHE_SIZE" : {
     "record_in_processes": ["main"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["necko@mozilla.com", "mnovotny@mozilla.com"],
     "bug_numbers": [1548472],
     "expires_in_version": "never",
@@ -14098,7 +14098,7 @@
   },
   "CONTENT_FULL_PAINT_TIME": {
     "record_in_processes": ["main", "content", "gpu"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "jmuizelaar@mozilla.com", "dbolter@mozilla.com"],
     "bug_numbers": [1505858],
     "expires_in_version": "never",
@@ -14110,7 +14110,7 @@
   },
   "CONTENT_FRAME_TIME": {
     "record_in_processes": ["main", "gpu"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "rhunt@mozilla.com"],
     "bug_numbers": [1470528, 1509536],
     "expires_in_version": "never",
@@ -14122,7 +14122,7 @@
   },
   "CONTENT_FRAME_TIME_VSYNC": {
     "record_in_processes": ["main", "gpu"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "mwoodrow@mozilla.com"],
     "bug_numbers": [1517355],
     "expires_in_version": "never",
@@ -14425,7 +14425,7 @@
   },
   "TIME_TO_DOM_INTERACTIVE_MS": {
     "record_in_processes": ["content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["hbambas@mozilla.com", "vgosu@mozilla.com", "jduell@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
@@ -14482,7 +14482,7 @@
   },
   "TIME_TO_DOM_COMPLETE_MS": {
     "record_in_processes": ["content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["hbambas@mozilla.com", "vgosu@mozilla.com", "jduell@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
@@ -15420,7 +15420,7 @@
   },
   "GV_PAGE_LOAD_MS": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": [
       "geckoview-team@mozilla.com",
       "esawin@mozilla.com"
@@ -15434,7 +15434,7 @@
   },
   "GV_PAGE_RELOAD_MS": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": [
       "geckoview-team@mozilla.com",
       "sefeng@mozilla.com",
