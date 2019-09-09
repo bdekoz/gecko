@@ -7,3 +7,19 @@
 # `glean_parser` PyPI package.
 
 $schema: moz://mozilla.org/schemas/glean/metrics/1-0-0
+
+timing:
+  non_blank_paint:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: TIME_TO_NON_BLANK_PAINT_MS
+    description: |
+      Composite times in milliseconds.
+    bugs:
+      - 1080160
+      - 1529352
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
