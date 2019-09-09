@@ -120,10 +120,10 @@ void nsPlainTextSerializer::CurrentLine::ResetContentAndIndentationHeader() {
 
 nsPlainTextSerializer::OutputManager::OutputManager(const int32_t aFlags,
                                                     nsAString& aOutput)
-    : mOutput{aOutput}, mAtFirstColumn{true} {
+    : mFlags{aFlags}, mOutput{aOutput}, mAtFirstColumn{true} {
   MOZ_ASSERT(aOutput.IsEmpty());
 
-  DetermineLineBreak(aFlags, mLineBreak);
+  DetermineLineBreak(mFlags, mLineBreak);
 }
 
 void nsPlainTextSerializer::OutputManager::Append(
@@ -473,7 +473,9 @@ nsPlainTextSerializer::AppendElementEnd(Element* aElement,
 
 NS_IMETHODIMP
 nsPlainTextSerializer::FlushAndFinish() {
-  FlushLine();
+  MOZ_ASSERT(mOutputManager);
+
+  mOutputManager->Flush(mCurrentLine);
   return Finish();
 }
 
@@ -523,7 +525,7 @@ nsresult nsPlainTextSerializer::DoOpenContainer(nsAtom* aTag) {
     // Raw means raw.  Don't even think about doing anything fancy
     // here like indenting, adding line breaks or any other
     // characters such as list item bullets, quote characters
-    // around <q>, etc.  I mean it!  Don't make me smack you!
+    // around <q>, etc.
 
     return NS_OK;
   }
@@ -643,14 +645,14 @@ nsresult nsPlainTextSerializer::DoOpenContainer(nsAtom* aTag) {
 
     // To make the separation between cells most obvious and
     // importable, we use a TAB.
-    if (GetLastBool(mHasWrittenCellsForRow)) {
-      // Bypass |Write| so that the TAB isn't compressed away.
-      AddToLine(u"\t", 1);
-      mInWhitespace = true;
-    } else if (mHasWrittenCellsForRow.IsEmpty()) {
+    if (mHasWrittenCellsForRow.IsEmpty()) {
       // We don't always see a <tr> (nor a <table>) before the <td> if we're
       // copying part of a table
       PushBool(mHasWrittenCellsForRow, true);  // will never be popped
+    } else if (GetLastBool(mHasWrittenCellsForRow)) {
+      // Bypass |Write| so that the TAB isn't compressed away.
+      AddToLine(u"\t", 1);
+      mInWhitespace = true;
     } else {
       SetLastBool(mHasWrittenCellsForRow, true);
     }
@@ -836,7 +838,7 @@ nsresult nsPlainTextSerializer::DoCloseContainer(nsAtom* aTag) {
     // Raw means raw.  Don't even think about doing anything fancy
     // here like indenting, adding line breaks or any other
     // characters such as list item bullets, quote characters
-    // around <q>, etc.  I mean it!  Don't make me smack you!
+    // around <q>, etc.
 
     return NS_OK;
   }
@@ -855,6 +857,8 @@ nsresult nsPlainTextSerializer::DoCloseContainer(nsAtom* aTag) {
     return NS_OK;
   }
 
+  MOZ_ASSERT(mOutputManager);
+
   // End current line if we're ending a block level tag
   if ((aTag == nsGkAtoms::body) || (aTag == nsGkAtoms::html)) {
     // We want the output to end with a new line,
@@ -864,7 +868,7 @@ nsresult nsPlainTextSerializer::DoCloseContainer(nsAtom* aTag) {
     if (mSettings.HasFlag(nsIDocumentEncoder::OutputFormatted)) {
       EnsureVerticalSpace(0);
     } else {
-      FlushLine();
+      mOutputManager->Flush(mCurrentLine);
     }
     // We won't want to do anything with these in formatted mode either,
     // so just return now:
@@ -890,14 +894,15 @@ nsresult nsPlainTextSerializer::DoCloseContainer(nsAtom* aTag) {
     mFloatingLines = GetLastBool(mIsInCiteBlockquote) ? 0 : 1;
     mLineBreakDue = true;
   } else if (aTag == nsGkAtoms::ul) {
-    FlushLine();
+    mOutputManager->Flush(mCurrentLine);
     mCurrentLine.mIndentation.mWidth -= kIndentSizeList;
     if (--mULCount + mOLStackIndex == 0) {
       mFloatingLines = 1;
       mLineBreakDue = true;
     }
   } else if (aTag == nsGkAtoms::ol) {
-    FlushLine();  // Doing this after decreasing OLStackIndex would be wrong.
+    mOutputManager->Flush(mCurrentLine);  // Doing this after decreasing
+                                          // OLStackIndex would be wrong.
     mCurrentLine.mIndentation.mWidth -= kIndentSizeList;
     NS_ASSERTION(mOLStackIndex, "Wrong OLStack level!");
     mOLStackIndex--;
@@ -909,7 +914,7 @@ nsresult nsPlainTextSerializer::DoCloseContainer(nsAtom* aTag) {
     mFloatingLines = 1;
     mLineBreakDue = true;
   } else if (aTag == nsGkAtoms::dd) {
-    FlushLine();
+    mOutputManager->Flush(mCurrentLine);
     mCurrentLine.mIndentation.mWidth -= kIndentSizeDD;
   } else if (aTag == nsGkAtoms::span) {
     NS_ASSERTION(mSpanLevel, "Span level will be negative!");
@@ -918,7 +923,7 @@ nsresult nsPlainTextSerializer::DoCloseContainer(nsAtom* aTag) {
     if (mFloatingLines < 0) mFloatingLines = 0;
     mLineBreakDue = true;
   } else if (aTag == nsGkAtoms::blockquote) {
-    FlushLine();  // Is this needed?
+    mOutputManager->Flush(mCurrentLine);  // Is this needed?
 
     // Pop
     bool isInCiteBlockquote = PopBool(mIsInCiteBlockquote);
@@ -1064,10 +1069,18 @@ void nsPlainTextSerializer::DoAddText(bool aIsLineBreak,
   Write(aText);
 }
 
+void CreateLineOfDashes(nsAString& aResult, const uint32_t aWrapColumn) {
+  MOZ_ASSERT(aResult.IsEmpty());
+
+  const uint32_t width = (aWrapColumn > 0 ? aWrapColumn : 25);
+  while (aResult.Length() < width) {
+    aResult.Append(char16_t('-'));
+  }
+}
+
 nsresult nsPlainTextSerializer::DoAddLeaf(nsAtom* aTag) {
   mPreformattedBlockBoundary = false;
 
-  // If we don't want any output, just return
   if (!DoOutput()) {
     return NS_OK;
   }
@@ -1096,10 +1109,7 @@ nsresult nsPlainTextSerializer::DoAddLeaf(nsAtom* aTag) {
     // Make a line of dashes as wide as the wrap width
     // XXX honoring percentage would be nice
     nsAutoString line;
-    uint32_t width = (mWrapColumn > 0 ? mWrapColumn : 25);
-    while (line.Length() < width) {
-      line.Append(char16_t('-'));
-    }
+    CreateLineOfDashes(line, mWrapColumn);
     Write(line);
 
     EnsureVerticalSpace(0);
@@ -1147,24 +1157,13 @@ void nsPlainTextSerializer::EnsureVerticalSpace(int32_t noOfRows) {
   mFloatingLines = -1;
 }
 
-/**
- * This empties the current line cache without adding a NEWLINE.
- * Should not be used if line wrapping is of importance since
- * this function destroys the cache information.
- *
- * It will also write indentation and quotes if we believe us to be
- * at the start of the line.
- */
-void nsPlainTextSerializer::FlushLine() {
-  if (!mCurrentLine.mContent.mValue.IsEmpty()) {
-    MOZ_ASSERT(mOutputManager);
+void nsPlainTextSerializer::OutputManager::Flush(CurrentLine& aCurrentLine) {
+  if (!aCurrentLine.mContent.mValue.IsEmpty()) {
+    aCurrentLine.mContent.MaybeReplaceNbsps(mFlags);
 
-    mCurrentLine.mContent.MaybeReplaceNbsps(mSettings.GetFlags());
+    Append(aCurrentLine, StripTrailingWhitespaces::kNo);
 
-    mOutputManager->Append(mCurrentLine,
-                           OutputManager::StripTrailingWhitespaces::kNo);
-
-    mCurrentLine.ResetContentAndIndentationHeader();
+    aCurrentLine.ResetContentAndIndentationHeader();
   }
 }
 
@@ -1358,6 +1357,18 @@ void nsPlainTextSerializer::AddToLine(const char16_t* aLineFragment,
   }
 }
 
+// The signature separator (RFC 2646).
+const char kSignatureSeparator[] = "-- ";
+
+// The OpenPGP dash-escaped signature separator in inline
+// signed messages according to the OpenPGP standard (RFC 2440).
+const char kDashEscapedSignatureSeparator[] = "- -- ";
+
+static bool IsSignatureSeparator(const nsAString& aString) {
+  return aString.EqualsLiteral(kSignatureSeparator) ||
+         aString.EqualsLiteral(kDashEscapedSignatureSeparator);
+}
+
 /**
  * Outputs the contents of mCurrentLine.mContent.mValue, and resets line
  * specific variables. Also adds an indentation and prefix if there is one
@@ -1378,15 +1389,8 @@ void nsPlainTextSerializer::EndLine(bool aSoftlinebreak, bool aBreakBySpace) {
    * signed messages according to the OpenPGP standard (RFC 2440).
    */
   if (!mSettings.HasFlag(nsIDocumentEncoder::OutputPreformatted) &&
-      (aSoftlinebreak ||
-       !(mCurrentLine.mContent.mValue.EqualsLiteral("-- ") ||
-         mCurrentLine.mContent.mValue.EqualsLiteral("- -- ")))) {
-    // Remove spaces from the end of the line.
-    while (currentlinelength > 0 &&
-           mCurrentLine.mContent.mValue[currentlinelength - 1] == ' ') {
-      --currentlinelength;
-    }
-    mCurrentLine.mContent.mValue.SetLength(currentlinelength);
+      (aSoftlinebreak || !IsSignatureSeparator(mCurrentLine.mContent.mValue))) {
+    mCurrentLine.mContent.mValue.Trim(" ", false, true, false);
   }
 
   if (aSoftlinebreak &&
@@ -1409,8 +1413,7 @@ void nsPlainTextSerializer::EndLine(bool aSoftlinebreak, bool aBreakBySpace) {
     mEmptyLines = 0;
   } else {
     // Hard break
-    if (!mCurrentLine.mContent.mValue.IsEmpty() ||
-        !mCurrentLine.mIndentation.mHeader.IsEmpty()) {
+    if (mCurrentLine.HasContentOrIndentationHeader()) {
       mEmptyLines = -1;
     }
 
@@ -1458,8 +1461,7 @@ void nsPlainTextSerializer::CurrentLine::CreateQuotesAndIndent(
 
   // Indent if necessary
   int32_t indentwidth = mIndentation.mWidth - mIndentation.mHeader.Length();
-  if (indentwidth > 0 &&
-      (!mContent.mValue.IsEmpty() || !mIndentation.mHeader.IsEmpty())
+  if (indentwidth > 0 && HasContentOrIndentationHeader()
       // Don't make empty lines look flowed
   ) {
     nsAutoString spaces;
@@ -1530,8 +1532,10 @@ void nsPlainTextSerializer::Write(const nsAString& aStr) {
     NS_ASSERTION(mCurrentLine.mContent.mValue.IsEmpty() ||
                      (IsElementPreformatted() && !mPreFormattedMail),
                  "Mixed wrapping data and nonwrapping data on the same line");
+    MOZ_ASSERT(mOutputManager);
+
     if (!mCurrentLine.mContent.mValue.IsEmpty()) {
-      FlushLine();
+      mOutputManager->Flush(mCurrentLine);
     }
 
     int32_t newline{0};
@@ -1540,8 +1544,6 @@ void nsPlainTextSerializer::Write(const nsAString& aStr) {
     // Have to put it in before every line.
     int32_t bol = 0;
     while (bol < totLen) {
-      MOZ_ASSERT(mOutputManager);
-
       bool outputLineBreak = false;
       bool spacesOnly = true;
 
@@ -1594,11 +1596,12 @@ void nsPlainTextSerializer::Write(const nsAString& aStr) {
 
       if (mSettings.HasFlag(nsIDocumentEncoder::OutputFormatFlowed)) {
         if ((outputLineBreak || !spacesOnly) &&  // bugs 261467,125928
-            !IsQuotedLine(stringpart) && !stringpart.EqualsLiteral("-- ") &&
-            !stringpart.EqualsLiteral("- -- "))
+            !IsQuotedLine(stringpart) && !IsSignatureSeparator(stringpart)) {
           stringpart.Trim(" ", false, true, true);
-        if (IsSpaceStuffable(stringpart.get()) && !IsQuotedLine(stringpart))
+        }
+        if (IsSpaceStuffable(stringpart.get()) && !IsQuotedLine(stringpart)) {
           mCurrentLine.mContent.mValue.Append(char16_t(' '));
+        }
       }
       mCurrentLine.mContent.mValue.Append(stringpart);
 

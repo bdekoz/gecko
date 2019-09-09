@@ -20,12 +20,15 @@ exclude: true
   `onTelemetryReceived` has been renamed to [`onHistogram`][71.4], and
   [`Metric`][71.5] now takes a type parameter.
   ([bug 1576730]({{bugzilla}}1576730))
+- Added overloads of [`GeckoSession.loadUri()`][71.6] that accept a map of 
+  additional HTTP request headers.
 
 [71.1]: {{javadoc_uri}}/RuntimeTelemetry.Delegate.html#onBooleanScalar-org.mozilla.geckoview.RuntimeTelemetry.Metric-
 [71.2]: {{javadoc_uri}}/RuntimeTelemetry.Delegate.html#onLongScalar-org.mozilla.geckoview.RuntimeTelemetry.Metric-
 [71.3]: {{javadoc_uri}}/RuntimeTelemetry.Delegate.html#onStringScalar-org.mozilla.geckoview.RuntimeTelemetry.Metric-
 [71.4]: {{javadoc_uri}}/RuntimeTelemetry.Delegate.html#onHistogram-org.mozilla.geckoview.RuntimeTelemetry.Metric-
 [71.5]: {{javadoc_uri}}/RuntimeTelemetry.Metric.html
+[71.6]: {{javadoc_uri}}/GeckoSession.html#loadUri-java.lang.String-java.io.File-java.util.Map-
 
 ## v70
 - Added API for session context assignment
@@ -74,6 +77,8 @@ exclude: true
   ([bug 1621094]({{bugzilla}}1621094))
 - Added support for Web Push via [`WebPushController`][70.24], [`WebPushDelegate`][70.25], and
   [`WebPushSubscription`][70.26].
+- Added [`ContentBlockingController`][70.27], accessible via [`GeckoRuntime.getContentBlockingController`][70.28]
+  to allow modification and inspection of a content blocking exception list.
 
 [70.1]: {{javadoc_uri}}/GeckoSessionSettings.Builder.html#contextId-java.lang.String-
 [70.2]: {{javadoc_uri}}/StorageController.html#clearDataForSessionContext-java.lang.String-
@@ -101,6 +106,8 @@ exclude: true
 [70.24]: {{javadoc_uri}}/WebPushController.html
 [70.25]: {{javadoc_uri}}/WebPushDelegate.html
 [70.26]: {{javadoc_uri}}/WebPushSubscription.html
+[70.27]: {{javadoc_uri}}/ContentBlockingController.html
+[70.28]: {{javadoc_uri}}/GeckoRuntime.html#getContentBlockingController--
 
 ## v69
 - Modified behavior of ['setAutomaticFontSizeAdjustment'][69.1] so that it no 
@@ -344,4 +351,4 @@ exclude: true
 [65.24]: {{javadoc_uri}}/CrashReporter.html#sendCrashReport-android.content.Context-android.os.Bundle-java.lang.String-
 [65.25]: {{javadoc_uri}}/GeckoResult.html
 
-[api-version]: 0a0ac56ba2b8204077f874e49f4976a12051a18e
+[api-version]: ccc454a846e5d3c22667842aecbbdef182524f94

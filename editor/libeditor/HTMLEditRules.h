@@ -87,18 +87,6 @@ class HTMLEditRules : public TextEditRules {
   MOZ_CAN_RUN_SCRIPT
   nsresult GetParagraphState(bool* aMixed, nsAString& outFormat);
 
-  /**
-   * MakeSureElemStartsAndEndsOnCR() inserts <br> element at start (and/or end)
-   * of aNode if neither:
-   * - first (last) editable child of aNode is a block or a <br>,
-   * - previous (next) sibling of aNode is block or a <br>
-   * - nor no previous (next) sibling of aNode.
-   *
-   * @param aNode               The node which may be inserted <br> elements.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult MakeSureElemStartsAndEndsOnCR(nsINode& aNode);
-
   void DidCreateNode(Element& aNewElement);
   void DidInsertNode(nsIContent& aNode);
   void WillDeleteNode(nsINode& aChild);
@@ -119,120 +107,11 @@ class HTMLEditRules : public TextEditRules {
   }
 
   /**
-   * Called before deleting selected contents.  This method actually removes
-   * selected contents.
-   *
-   * @param aDirectionAndAmount Direction of the deletion.
-   * @param aStripWrappers      Must be eStrip or eNoStrip.
-   */
-  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
-  WillDeleteSelection(nsIEditor::EDirection aDirectionAndAmount,
-                      nsIEditor::EStripWrappers aStripWrappers);
-
-  /**
-   * HandleDeleteAroundCollapsedSelection() handles deletion with collapsed
-   * `Selection`.  Callers must guarantee that this is called only when
-   * `Selection` is collapsed.
-   *
-   * @param aDirectionAndAmount Direction of the deletion.
-   * @param aStripWrappers      Must be eStrip or eNoStrip.
-   */
-  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
-  HandleDeleteAroundCollapsedSelection(
-      nsIEditor::EDirection aDirectionAndAmount,
-      nsIEditor::EStripWrappers aStripWrappers);
-
-  /**
-   * HandleDeleteNonCollapsedSelection() handles deletion with non-collapsed
-   * `Selection`.  Callers must guarantee that this is called only when
-   * `Selection` is NOT collapsed.
-   *
-   * @param aDirectionAndAmount         Direction of the deletion.
-   * @param aStripWrappers              Must be eStrip or eNoStrip.
-   * @param aSelectionWasCollpased      If the caller extended `Selection`
-   *                                    from collapsed, set this to `Yes`.
-   *                                    Otherwise, i.e., `Selection` is not
-   *                                    collapsed from the beginning, set
-   *                                    this to `No`.
-   */
-  enum class SelectionWasCollapsed { Yes, No };
-  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
-  HandleDeleteNonCollapsedSelection(
-      nsIEditor::EDirection aDirectionAndAmount,
-      nsIEditor::EStripWrappers aStripWrappers,
-      SelectionWasCollapsed aSelectionWasCollapsed);
-
-  /**
    * Called after deleting selected content.
    * This method removes unnecessary empty nodes and/or inserts <br> if
    * necessary.
    */
   MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult DidDeleteSelection();
-
-  /**
-   * DeleteElementsExceptTableRelatedElements() removes elements except
-   * table related elements (except <table> itself) and their contents
-   * from the DOM tree.
-   *
-   * @param aNode               If this is not a table related element, this
-   *                            node will be removed from the DOM tree.
-   *                            Otherwise, this method calls itself recursively
-   *                            with its children.
-   *
-   */
-  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult
-  DeleteElementsExceptTableRelatedElements(nsINode& aNode);
-
-  /**
-   * Called before removing a list element.  This method actually removes
-   * list elements and list item elements at Selection.  And move contents
-   * in them where the removed list was.
-   *
-   * @param aCancel             Returns true if the operation is canceled.
-   * @param aHandled            Returns true if the edit action is handled.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult WillRemoveList(bool* aCancel, bool* aHandled);
-
-  /**
-   * Called before indenting around Selection.  This method actually tries to
-   * indent the contents.
-   *
-   * @param aCancel             Returns true if the operation is canceled.
-   * @param aHandled            Returns true if the edit action is handled.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult WillIndent(bool* aCancel, bool* aHandled);
-
-  /**
-   * Called before indenting around Selection and it's in CSS mode.
-   * This method actually tries to indent the contents.
-   *
-   * @param aCancel             Returns true if the operation is canceled.
-   * @param aHandled            Returns true if the edit action is handled.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult WillCSSIndent(bool* aCancel, bool* aHandled);
-
-  /**
-   * Called before indenting around Selection and it's not in CSS mode.
-   * This method actually tries to indent the contents.
-   *
-   * @param aCancel             Returns true if the operation is canceled.
-   * @param aHandled            Returns true if the edit action is handled.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult WillHTMLIndent(bool* aCancel, bool* aHandled);
-
-  /**
-   * Called before outdenting around Selection.  This method actually tries
-   * to indent the contents.
-   *
-   * @param aCancel             Returns true if the operation is canceled.
-   * @param aHandled            Returns true if the edit action is handled.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult WillOutdent(bool* aCancel, bool* aHandled);
 
   /**
    * Called before aligning contents around Selection.  This method actually
@@ -313,33 +192,6 @@ class HTMLEditRules : public TextEditRules {
   MOZ_MUST_USE nsresult DidAbsolutePosition();
 
   /**
-   * AlignInnerBlocks() calls AlignBlockContents() for every list item element
-   * and table cell element in aNode.
-   *
-   * @param aNode               The node whose descendants should be aligned
-   *                            to aAlignType.
-   * @param aAlignType          New value of align attribute of <div>.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult AlignInnerBlocks(nsINode& aNode,
-                                         const nsAString& aAlignType);
-
-  /**
-   * AlignBlockContents() sets align attribute of <div> element which is
-   * only child of aNode to aAlignType.  If aNode has 2 or more children or
-   * does not have a <div> element has only child, inserts a <div> element
-   * into aNode and move all children of aNode into the new <div> element.
-   *
-   * @param aNode               The node whose contents should be aligned
-   *                            to aAlignType.
-   * @param aAlignType          New value of align attribute of <div> which
-   *                            is only child of aNode.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult AlignBlockContents(nsINode& aNode,
-                                           const nsAString& aAlignType);
-
-  /**
    * AlignContentsAtSelection() aligns contents around Selection to aAlignType.
    * This creates AutoSelectionRestorer.  Therefore, even if this returns
    * NS_OK, CanHandleEditAction() may return false if the editor is destroyed
@@ -363,115 +215,9 @@ class HTMLEditRules : public TextEditRules {
    */
   MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult AfterEditInner();
 
-  /**
-   * IndentAroundSelectionWithCSS() indents around Selection with CSS.
-   * This method creates AutoSelectionRestorer.  Therefore, each caller
-   * need to check if the editor is still available even if this returns
-   * NS_OK.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult IndentAroundSelectionWithCSS();
-
-  /**
-   * IndentAroundSelectionWithHTML() indents around Selection with HTML.
-   * This method creates AutoSelectionRestorer.  Therefore, each caller
-   * need to check if the editor is still available even if this returns
-   * NS_OK.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult IndentAroundSelectionWithHTML();
-
-  /**
-   * OutdentAroundSelection() outdents contents around Selection.
-   * This method creates AutoSelectionRestorer.  Therefore, each caller
-   * need to check if the editor is still available even if this returns
-   * NS_OK.
-   *
-   * @return                    The left content is left content of last
-   *                            outdented element.
-   *                            The right content is right content of last
-   *                            outdented element.
-   *                            The middle content is middle content of last
-   *                            outdented element.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE SplitRangeOffFromNodeResult OutdentAroundSelection();
-
-  /**
-   * OutdentPartOfBlock() outdents the nodes between aStartOfOutdent and
-   * aEndOfOutdent.  This splits the range off from aBlockElement first.
-   * Then, removes the middle element if aIsBlockIndentedWithCSS is false.
-   * Otherwise, decreases the margin of the middle element.
-   *
-   * @param aBlockElement           A block element which includes both
-   *                                aStartOfOutdent and aEndOfOutdent.
-   * @param aStartOfOutdent         First node which is descendant of
-   *                                aBlockElement will be outdented.
-   * @param aEndOfOutdent           Last node which is descandant of
-   *                                aBlockElement will be outdented.
-   * @param aIsBlockIndentedWithCSS true if aBlockElement is indented with
-   *                                CSS margin property.
-   *                                false if aBlockElement is <blockquote>
-   *                                or something.
-   * @return                        The left content is new created element
-   *                                splitting before aStartOfOutdent.
-   *                                The right content is existing element.
-   *                                The middle content is outdented element
-   *                                if aIsBlockIndentedWithCSS is true.
-   *                                Otherwise, nullptr.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE SplitRangeOffFromNodeResult
-  OutdentPartOfBlock(Element& aBlockElement, nsIContent& aStartOfOutdent,
-                     nsIContent& aEndOutdent, bool aIsBlockIndentedWithCSS);
-
-  void GetDefinitionListItemTypes(Element* aElement, bool* aDT,
-                                  bool* aDD) const;
   MOZ_CAN_RUN_SCRIPT
   nsresult GetParagraphFormatNodes(
       nsTArray<OwningNonNull<nsINode>>& outArrayOfNodes);
-
-  /**
-   * MakeTransitionList() detects all the transitions in the array, where a
-   * transition means that adjacent nodes in the array don't have the same
-   * parent.
-   */
-  void MakeTransitionList(nsTArray<OwningNonNull<nsINode>>& aNodeArray,
-                          nsTArray<bool>& aTransitionArray);
-
-  /**
-   * PopListItem() tries to move aListItem outside its parent.  If it's
-   * in a middle of a list element, the parent list element is split before
-   * aListItem.  Then, moves aListItem to before its parent list element.
-   * I.e., moves aListItem between the 2 list elements if original parent
-   * was split.  Then, if new parent is not a list element, the list item
-   * element is removed and its contents are moved to where the list item
-   * element was.
-   *
-   * @param aListItem           Should be a <li>, <dt> or <dd> element.
-   *                            If it's not so, returns NS_ERROR_FAILURE.
-   * @param aOutOfList          Returns true if the list item element is
-   *                            removed (i.e., unwrapped contents of
-   *                            aListItem).  Otherwise, false.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult PopListItem(nsIContent& aListItem,
-                                    bool* aOutOfList = nullptr);
-
-  /**
-   * RemoveListStructure() destroys the list structure of aListElement.
-   * If aListElement has <li>, <dl> or <dt> as a child, the element is removed
-   * but its descendants are moved to where the list item element was.
-   * If aListElement has another <ul>, <ol> or <dl> as a child, this method
-   * is called recursively.
-   * If aListElement has other nodes as its child, they are just removed.
-   * Finally, aListElement is removed. and its all children are moved to
-   * where the aListElement was.
-   *
-   * @param aListElement        A <ul>, <ol> or <dl> element.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult RemoveListStructure(Element& aListElement);
 
   /**
    * InsertBRElementToEmptyListItemsAndTableCellsInRange() inserts
@@ -544,47 +290,6 @@ class HTMLEditRules : public TextEditRules {
   MOZ_MUST_USE nsresult ConfirmSelectionInBody();
 
   /**
-   * IsEmptyInline: Return true if aNode is an empty inline container
-   */
-  bool IsEmptyInline(nsINode& aNode);
-
-  bool ListIsEmptyLine(nsTArray<OwningNonNull<nsINode>>& arrayOfNodes);
-
-  /**
-   * RemoveAlignment() removes align attributes, text-align properties and
-   * <center> elements in aNode.
-   *
-   * @param aNode               Alignment information of the node and/or its
-   *                            descendants will be removed.
-   * @param aAlignType          New align value to be set only when it's in
-   *                            CSS mode and this method meets <table> or <hr>.
-   *                            XXX This is odd and not clear when you see
-   *                                caller of this method.  Do you have better
-   *                                idea?
-   * @param aDescendantsOnly    true if align information of aNode itself
-   *                            shouldn't be removed.  Otherwise, false.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult RemoveAlignment(nsINode& aNode,
-                                        const nsAString& aAlignType,
-                                        bool aDescendantsOnly);
-
-  /**
-   * MakeSureElemStartsOrEndsOnCR() inserts <br> element at start (end) of
-   * aNode if neither:
-   * - first (last) editable child of aNode is a block or a <br>,
-   * - previous (next) sibling of aNode is block or a <br>
-   * - nor no previous (next) sibling of aNode.
-   *
-   * @param aNode               The node which may be inserted <br> element.
-   * @param aStarts             true for trying to insert <br> to the start.
-   *                            false for trying to insert <br> to the end.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult MakeSureElemStartsOrEndsOnCR(nsINode& aNode,
-                                                     bool aStarts);
-
-  /**
    * AlignBlock() resets align attribute, text-align property, etc first.
    * Then, aligns contents of aElement on aAlignType.
    *
@@ -599,43 +304,6 @@ class HTMLEditRules : public TextEditRules {
   MOZ_MUST_USE nsresult AlignBlock(Element& aElement,
                                    const nsAString& aAlignType,
                                    ResetAlignOf aResetAlignOf);
-
-  /**
-   * IncreaseMarginToIndent() increases the margin of aElement.  See the
-   * document of ChangeMarginStart() for the detail.
-   * XXX This is not aware of vertical writing-mode.
-   *
-   * @param aElement            The element to be indented.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult IncreaseMarginToIndent(Element& aElement) {
-    return ChangeMarginStart(aElement, true);
-  }
-
-  /**
-   * DecreaseMarginToOutdent() decreases the margin of aElement.  See the
-   * document of ChangeMarginStart() for the detail.
-   * XXX This is not aware of vertical writing-mode.
-   *
-   * @param aElement            The element to be outdented.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult DecreaseMarginToOutdent(Element& aElement) {
-    return ChangeMarginStart(aElement, false);
-  }
-
-  /**
-   * ChangeMarginStart() changes margin of aElement to indent or outdent.
-   * However, use IncreaseMarginToIndent() and DecreaseMarginToOutdent()
-   * instead.  If it's rtl text, margin-right will be changed.  Otherwise,
-   * margin-left.
-   * XXX This is not aware of vertical writing-mode.
-   *
-   * @param aElement            The element to be indented or outdented.
-   * @param aIncrease           true for indent, false for outdent.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  MOZ_MUST_USE nsresult ChangeMarginStart(Element& aElement, bool aIncrease);
 
   /**
    * DocumentModifiedWorker() is called by DocumentModified() either

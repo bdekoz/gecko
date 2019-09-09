@@ -47,6 +47,7 @@ class EmptyEditableFunctor;
 class MoveNodeResult;
 class ResizerSelectionListener;
 class SplitRangeOffFromNodeResult;
+class WSRunObject;
 enum class EditSubAction : int32_t;
 struct PropItem;
 template <class T>
@@ -261,8 +262,8 @@ class HTMLEditor final : public TextEditor,
   nsresult AlignAsAction(const nsAString& aAlignType,
                          nsIPrincipal* aPrincipal = nullptr);
 
-  nsresult RemoveListAsAction(const nsAString& aListType,
-                              nsIPrincipal* aPrincipal = nullptr);
+  MOZ_CAN_RUN_SCRIPT nsresult RemoveListAsAction(
+      const nsAString& aListType, nsIPrincipal* aPrincipal = nullptr);
 
   /**
    * MakeOrChangeListAsAction() makes selected hard lines list element(s).
@@ -2111,6 +2112,395 @@ class HTMLEditor final : public TextEditor,
   already_AddRefed<dom::StaticRange> GetExtendedRangeToIncludeInvisibleNodes(
       const dom::AbstractRange& aAbstractRange);
 
+  /**
+   * HandleDeleteCollapsedSelectionAtWhiteSpaces() handles deletion of
+   * collapsed selection at whitespaces in a text node.
+   *
+   * @param aDirectionAndAmount Direction of the deletion.
+   * @param aWSRunObjectAtCaret WSRunObject instance which was initialized with
+   *                            the caret point.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
+  HandleDeleteCollapsedSelectionAtWhiteSpaces(
+      nsIEditor::EDirection aDirectionAndAmount,
+      WSRunObject& aWSRunObjectAtCaret);
+
+  /**
+   * HandleDeleteCollapsedSelectionAtTextNode() handles deletion of
+   * collapsed selection in a text node.
+   *
+   * @param aDirectionAndAmount Direction of the deletion.
+   * @param aPointToDelete      The point in a text node to delete character(s).
+   *                            Caller must guarantee that this is in a text
+   *                            node.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
+  HandleDeleteCollapsedSelectionAtTextNode(
+      nsIEditor::EDirection aDirectionAndAmount,
+      const EditorDOMPoint& aPointToDelete);
+
+  /**
+   * HandleDeleteCollapsedSelectionAtAtomicContent() handles deletion of
+   * atomic elements like `<br>`, `<hr>`, `<img>`, `<input>`, etc and
+   * data nodes except text node (e.g., comment node).
+   * If aAtomicContent is a invisible `<br>` element, this will call
+   * `WillDeleteSelection()` recursively after deleting it.
+   *
+   * @param aDirectionAndAmount Direction of the deletion.
+   * @param aStripWrappers      Must be eStrip or eNoStrip.
+   * @param aAtomicContent      The atomic content to be deleted.
+   * @param aCaretPoint         The caret point (i.e., selection start or
+   *                            end).
+   * @param aWSRunObjectAtCaret WSRunObject instance which was initialized with
+   *                            the caret point.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
+  HandleDeleteCollapsedSelectionAtAtomicContent(
+      nsIEditor::EDirection aDirectionAndAmount,
+      nsIEditor::EStripWrappers aStripWrappers, nsIContent& aAtomicContent,
+      const EditorDOMPoint& aCaretPoint, WSRunObject& aWSRunObjectAtCaret);
+
+  /**
+   * HandleDeleteCollapsedSelectionAtOtherBlockBoundary() handles deletion at
+   * other block boundary (i.e., immediately before or after a block).
+   * If this does not join blocks, `WillDeleteSelection()` may be called
+   * recursively.
+   *
+   * @param aDirectionAndAmount Direction of the deletion.
+   * @param aStripWrappers      Must be eStrip or eNoStrip.
+   * @param aOtherBlockElement  The block element which follows the caret or
+   *                            is followed by caret.
+   * @param aCaretPoint         The caret point (i.e., selection start or
+   *                            end).
+   * @param aWSRunObjectAtCaret WSRunObject instance which was initialized with
+   *                            the caret point.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
+  HandleDeleteCollapsedSelectionAtOtherBlockBoundary(
+      nsIEditor::EDirection aDirectionAndAmount,
+      nsIEditor::EStripWrappers aStripWrappers, Element& aOtherBlockElement,
+      const EditorDOMPoint& aCaretPoint, WSRunObject& aWSRunObjectAtCaret);
+
+  /**
+   * HandleDeleteCollapsedSelectionAtCurrentBlockBoundary() handles deletion
+   * at current block boundary (i.e., at start or end of current block).
+   *
+   * @param aDirectionAndAmount         Direction of the deletion.
+   * @param aCurrentBlockElement        The current block element.
+   * @param aCaretPoint                 The caret point (i.e., selection start
+   *                                    or end).
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
+  HandleDeleteCollapsedSelectionAtCurrentBlockBoundary(
+      nsIEditor::EDirection aDirectionAndAmount, Element& aCurrentBlockElement,
+      const EditorDOMPoint& aCaretPoint);
+
+  /**
+   * DeleteUnnecessaryNodesAndCollapseSelection() removes unnecessary nodes
+   * around aSelectionStartPoint and aSelectionEndPoint.  Then, collapse
+   * selection at aSelectionStartPoint or aSelectionEndPoint (depending on
+   * aDirectionAndAmount).
+   *
+   * @param aDirectionAndAmount         Direction of the deletion.
+   *                                    If nsIEditor::ePrevious, selection will
+   *                                    be collapsed to aSelectionEndPoint.
+   *                                    Otherwise, selection will be collapsed
+   *                                    to aSelectionStartPoint.
+   * @param aSelectionStartPoint        First selection range start after
+   *                                    computing the deleting range.
+   * @param aSelectionEndPoint          First selection range end after
+   *                                    computing the deleting range.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult
+  DeleteUnnecessaryNodesAndCollapseSelection(
+      nsIEditor::EDirection aDirectionAndAmount,
+      const EditorDOMPoint& aSelectionStartPoint,
+      const EditorDOMPoint& aSelectionEndPoint);
+
+  /**
+   * HandleDeleteAroundCollapsedSelection() handles deletion with collapsed
+   * `Selection`.  Callers must guarantee that this is called only when
+   * `Selection` is collapsed.
+   *
+   * @param aDirectionAndAmount Direction of the deletion.
+   * @param aStripWrappers      Must be eStrip or eNoStrip.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
+  HandleDeleteAroundCollapsedSelection(
+      nsIEditor::EDirection aDirectionAndAmount,
+      nsIEditor::EStripWrappers aStripWrappers);
+
+  /**
+   * HandleDeleteNonCollapsedSelection() handles deletion with non-collapsed
+   * `Selection`.  Callers must guarantee that this is called only when
+   * `Selection` is NOT collapsed.
+   *
+   * @param aDirectionAndAmount         Direction of the deletion.
+   * @param aStripWrappers              Must be eStrip or eNoStrip.
+   * @param aSelectionWasCollpased      If the caller extended `Selection`
+   *                                    from collapsed, set this to `Yes`.
+   *                                    Otherwise, i.e., `Selection` is not
+   *                                    collapsed from the beginning, set
+   *                                    this to `No`.
+   */
+  enum class SelectionWasCollapsed { Yes, No };
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
+  HandleDeleteNonCollapsedSelection(
+      nsIEditor::EDirection aDirectionAndAmount,
+      nsIEditor::EStripWrappers aStripWrappers,
+      SelectionWasCollapsed aSelectionWasCollapsed);
+
+  /**
+   * DeleteElementsExceptTableRelatedElements() removes elements except
+   * table related elements (except <table> itself) and their contents
+   * from the DOM tree.
+   *
+   * @param aNode               If this is not a table related element, this
+   *                            node will be removed from the DOM tree.
+   *                            Otherwise, this method calls itself recursively
+   *                            with its children.
+   *
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult
+  DeleteElementsExceptTableRelatedElements(nsINode& aNode);
+
+  /**
+   * This method handles "delete selection" commands.
+   *
+   * @param aDirectionAndAmount Direction of the deletion.
+   * @param aStripWrappers      Must be eStrip or eNoStrip.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult
+  HandleDeleteSelection(nsIEditor::EDirection aDirectionAndAmount,
+                        nsIEditor::EStripWrappers aStripWrappers);
+
+  /**
+   * LiftUpListItemElement() moves aListItemElement outside its parent.
+   * If it's in a middle of a list element, the parent list element is split
+   * before aListItemElement.  Then, moves aListItemElement to before its
+   * parent list element.  I.e., moves aListItemElement between the 2 list
+   * elements if original parent was split.  Then, if new parent becomes not a
+   * list element, the list item element is removed and its contents are moved
+   * to where the list item element was.  If aListItemElement becomse not a
+   * child of list element, its contents are unwrapped from aListItemElement.
+   *
+   * @param aListItemElement    Must be a <li>, <dt> or <dd> element.
+   * @param aLiftUpFromAllParentListElements
+   *                            If Yes, this method calls itself recursively
+   *                            to unwrap the contents in aListItemElement
+   *                            from any ancestor list elements.
+   *                            XXX This checks only direct parent of list
+   *                                elements.  Therefore, if a parent list
+   *                                element in a list item element, the
+   *                                list item element and its list element
+   *                                won't be unwrapped.
+   */
+  enum class LiftUpFromAllParentListElements { Yes, No };
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult LiftUpListItemElement(
+      dom::Element& aListItemElement,
+      LiftUpFromAllParentListElements aLiftUpFromAllParentListElements);
+
+  /**
+   * DestroyListStructureRecursively() destroys the list structure of
+   * aListElement recursively.
+   * If aListElement has <li>, <dl> or <dt> as a child, the element is removed
+   * but its descendants are moved to where the list item element was.
+   * If aListElement has another <ul>, <ol> or <dl> as a child, this method is
+   * called recursively.
+   * If aListElement has other nodes as its child, they are just removed.
+   * Finally, aListElement is removed. and its all children are moved to
+   * where the aListElement was.
+   *
+   * @param aListElement        A <ul>, <ol> or <dl> element.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult
+  DestroyListStructureRecursively(Element& aListElement);
+
+  /**
+   * RemoveListAtSelectionAsSubAction() removes list elements and list item
+   * elements at Selection.  And move contents in them where the removed list
+   * was.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult RemoveListAtSelectionAsSubAction();
+
+  /**
+   * ChangeMarginStart() changes margin of aElement to indent or outdent.
+   * If it's rtl text, margin-right will be changed.  Otherwise, margin-left.
+   * XXX This is not aware of vertical writing-mode.
+   */
+  enum class ChangeMargin { Increase, Decrease };
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult
+  ChangeMarginStart(Element& aElement, ChangeMargin aChangeMargin);
+
+  /**
+   * HandleCSSIndentAtSelectionInternal() indents around Selection with CSS.
+   * This method creates AutoSelectionRestorer.  Therefore, each caller
+   * need to check if the editor is still available even if this returns
+   * NS_OK.
+   * NOTE: Use HandleCSSIndentAtSelection() instead.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult HandleCSSIndentAtSelectionInternal();
+
+  /**
+   * HandleHTMLIndentAtSelectionInternal() indents around Selection with HTML.
+   * This method creates AutoSelectionRestorer.  Therefore, each caller
+   * need to check if the editor is still available even if this returns
+   * NS_OK.
+   * NOTE: Use HandleHTMLIndentAtSelection() instead.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult
+  HandleHTMLIndentAtSelectionInternal();
+
+  /**
+   * HandleCSSIndentAtSelection() indents around Selection with CSS.
+   * NOTE: This is a helper method of `HandleIndentAtSelection()`.  If you
+   *       want to call this directly, you should check whether you need
+   *       do do something which `HandleIndentAtSelection()` does.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult HandleCSSIndentAtSelection();
+
+  /**
+   * HandleHTMLIndentAtSelection() indents around Selection with HTML.
+   * NOTE: This is a helper method of `HandleIndentAtSelection()`.  If you
+   *       want to call this directly, you should check whether you need
+   *       do do something which `HandleIndentAtSelection()` does.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult HandleHTMLIndentAtSelection();
+
+  /**
+   * HandleIndentAtSelection() indents around Selection with HTML or CSS.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult HandleIndentAtSelection();
+
+  /**
+   * OutdentPartOfBlock() outdents the nodes between aStartOfOutdent and
+   * aEndOfOutdent.  This splits the range off from aBlockElement first.
+   * Then, removes the middle element if aIsBlockIndentedWithCSS is false.
+   * Otherwise, decreases the margin of the middle element.
+   *
+   * @param aBlockElement       A block element which includes both
+   *                            aStartOfOutdent and aEndOfOutdent.
+   * @param aStartOfOutdent     First node which is descendant of
+   *                            aBlockElement will be outdented.
+   * @param aEndOfOutdent       Last node which is descandant of
+   *                            aBlockElement will be outdented.
+   * @param aBlockIndentedWith  `CSS` if aBlockElement is indented with
+   *                            CSS margin property.
+   *                            `HTML` if aBlockElement is `<blockquote>`
+   *                            or something.
+   * @return                    The left content is new created element
+   *                            splitting before aStartOfOutdent.
+   *                            The right content is existing element.
+   *                            The middle content is outdented element
+   *                            if aBlockIndentedWith is `CSS`.
+   *                            Otherwise, nullptr.
+   */
+  enum class BlockIndentedWith { CSS, HTML };
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE SplitRangeOffFromNodeResult
+  OutdentPartOfBlock(Element& aBlockElement, nsIContent& aStartOfOutdent,
+                     nsIContent& aEndOutdent,
+                     BlockIndentedWith aBlockIndentedWith);
+
+  /**
+   * HandleOutdentAtSelectionInternal() outdents contents around Selection.
+   * This method creates AutoSelectionRestorer.  Therefore, each caller
+   * needs to check if the editor is still available even if this returns
+   * NS_OK.
+   * NOTE: Call `HandleOutdentAtSelection()` instead.
+   *
+   * @return                    The left content is left content of last
+   *                            outdented element.
+   *                            The right content is right content of last
+   *                            outdented element.
+   *                            The middle content is middle content of last
+   *                            outdented element.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE SplitRangeOffFromNodeResult
+  HandleOutdentAtSelectionInternal();
+
+  /**
+   * HandleOutdentAtSelection() outdents contents around Selection.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult HandleOutdentAtSelection();
+
+  /**
+   * AlignBlockContentsWithDivElement() sets align attribute of <div> element
+   * which is only child of aBlockElement to aAlignType.  If aBlockElement
+   * has 2 or more children or does not have a `<div>` element, inserts a
+   * new `<div>` element into aBlockElement and move all children of
+   * aBlockElement into the new `<div>` element.
+   *
+   * @param aBlockElement       The element node whose contents should be
+   *                            aligned to aAlignType.  This should be
+   *                            an element which can have `<div>` element
+   *                            as its child.
+   * @param aAlignType          New value of align attribute of `<div>`
+   *                            element.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult AlignBlockContentsWithDivElement(
+      dom::Element& aBlockElement, const nsAString& aAlignType);
+
+  /**
+   * AlignContentsInAllTableCellsAndListItems() calls
+   * AlignBlockContentsWithDivElement() for aligning contents in every list
+   * item element and table cell element in aElement.
+   *
+   * @param aElement            The node which is or whose descendants should
+   *                            be aligned to aAlignType.
+   * @param aAlignType          New value of `align` attribute of `<div>`.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult
+  AlignContentsInAllTableCellsAndListItems(dom::Element& aElement,
+                                           const nsAString& aAlignType);
+
+  /**
+   * MakeTransitionList() detects all the transitions in the array, where a
+   * transition means that adjacent nodes in the array don't have the same
+   * parent.
+   */
+  static void MakeTransitionList(
+      const nsTArray<OwningNonNull<nsINode>>& aNodeArray,
+      nsTArray<bool>& aTransitionArray);
+
+  /**
+   * EnsureHardLineBeginsWithFirstChildOf() inserts `<br>` element before
+   * first child of aRemovingContainerElement if it will not be start of a
+   * hard line after removing aRemovingContainerElement.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult
+  EnsureHardLineBeginsWithFirstChildOf(dom::Element& aRemovingContainerElement);
+
+  /**
+   * EnsureHardLineEndsWithLastChildOf() inserts `<br>` element after last
+   * child of aRemovingContainerElement if it will not be end of a hard line
+   * after removing aRemovingContainerElement.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult
+  EnsureHardLineEndsWithLastChildOf(dom::Element& aRemovingContainerElement);
+
+  /**
+   * RemoveAlignFromDescendants() removes align attributes, text-align
+   * properties and <center> elements in aElement.
+   *
+   * @param aElement    Alignment information of the node and/or its
+   *                    descendants will be removed.
+   *                    NOTE: aElement must not be a `<table>` element.
+   * @param aAlignType  New align value to be set only when it's in
+   *                    CSS mode and this method meets <table> or <hr>.
+   *                    XXX This is odd and not clear when you see caller of
+   *                    this method.  Do you have better idea?
+   * @param aEditTarget If `OnlyDescendantsExceptTable`, modifies only
+   *                    descendants of aElement.
+   *                    If `NodeAndDescendantsExceptTable`, modifies `aElement`
+   *                    and its descendants.
+   */
+  enum class EditTarget {
+    OnlyDescendantsExceptTable,
+    NodeAndDescendantsExceptTable
+  };
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE nsresult RemoveAlignFromDescendants(
+      Element& aElement, const nsAString& aAlignType, EditTarget aEditTarget);
+
  protected:  // Called by helper classes.
   virtual void OnStartToHandleTopLevelEditSubAction(
       EditSubAction aEditSubAction, nsIEditor::EDirection aDirection) override;
@@ -2644,15 +3034,14 @@ class HTMLEditor final : public TextEditor,
   nsresult InsertTextWithQuotationsInternal(const nsAString& aStringToInsert);
 
   /**
-   * IndentOrOutdentAsSubAction() indents or outdents the content around
-   * Selection.  Callers have to guarantee that there is a placeholder
-   * transaction.
-   *
-   * @param aEditSubAction      Must be EditSubAction::eIndent or
-   *                            EditSubAction::eOutdent.
+   * IndentAsSubAction() indents the content around Selection.
    */
-  MOZ_CAN_RUN_SCRIPT
-  nsresult IndentOrOutdentAsSubAction(EditSubAction aEditSubAction);
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult IndentAsSubAction();
+
+  /**
+   * OutdentAsSubAction() outdents the content around Selection.
+   */
+  MOZ_CAN_RUN_SCRIPT MOZ_MUST_USE EditActionResult OutdentAsSubAction();
 
   MOZ_CAN_RUN_SCRIPT
   nsresult LoadHTML(const nsAString& aInputString);

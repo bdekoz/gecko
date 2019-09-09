@@ -598,7 +598,7 @@ nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent,
     mPuppetWidget->CreateCompositor();
   }
 
-#if !defined(MOZ_WIDGET_ANDROID)
+#if !defined(MOZ_WIDGET_ANDROID) && !defined(MOZ_THUNDERBIRD) && !defined(MOZ_SUITE)
   mSessionStoreListener = new TabListener(docShell, nullptr);
   rv = mSessionStoreListener->Init();
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1057,14 +1057,13 @@ BrowserChild::~BrowserChild() {
   mozilla::DropJSObjects(this);
 }
 
-mozilla::ipc::IPCResult BrowserChild::RecvSkipBrowsingContextDetach() {
-  nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation());
-  if (!docShell) {
-    return IPC_OK();
+mozilla::ipc::IPCResult BrowserChild::RecvSkipBrowsingContextDetach(
+    SkipBrowsingContextDetachResolver&& aResolve) {
+  if (nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation())) {
+    RefPtr<nsDocShell> docshell = nsDocShell::Cast(docShell);
+    docshell->SkipBrowsingContextDetach();
   }
-  RefPtr<nsDocShell> docshell = nsDocShell::Cast(docShell);
-  MOZ_ASSERT(docshell);
-  docshell->SkipBrowsingContextDetach();
+  aResolve(true);
   return IPC_OK();
 }
 
