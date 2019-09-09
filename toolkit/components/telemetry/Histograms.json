@@ -319,7 +319,7 @@
   },
   "COMPOSITE_TIME" : {
     "record_in_processes": ["main", "content", "gpu"],
-    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
+    "products": ["firefox", "fennec", "geckoview"],
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "rhunt@mozilla.com"],
     "expires_in_version": "never",
     "description": "Composite times in milliseconds",
@@ -1234,7 +1234,7 @@
   },
   "MEMORY_TOTAL": {
     "record_in_processes": ["main"],
-    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
+    "products": ["firefox", "fennec", "geckoview"],
     "alert_emails": ["memshrink-telemetry-alerts@mozilla.com", "erahm@mozilla.com"],
     "bug_numbers": [1198209, 1511918],
     "expires_in_version": "never",
@@ -1380,7 +1380,7 @@
   },
   "MEMORY_HEAP_ALLOCATED": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
+    "products": ["firefox", "fennec", "geckoview"],
     "alert_emails": ["memshrink-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
@@ -1713,7 +1713,7 @@
   },
   "KEYPRESS_PRESENT_LATENCY": {
     "record_in_processes": [ "all" ],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": [ "perfteam@mozilla.com", "vchin@mozilla.com" ],
     "expires_in_version": "never",
     "kind": "exponential",
@@ -1779,7 +1779,7 @@
   },
   "TOTAL_CONTENT_PAGE_LOAD_TIME": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["perf-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
@@ -6884,7 +6884,7 @@
   },
   "FX_TAB_SWITCH_COMPOSITE_E10S_MS": {
     "record_in_processes": ["main"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["mwoodrow@mozilla.com"],
     "expires_in_version": "73",
     "kind": "exponential",
@@ -11379,7 +11379,7 @@
   },
   "NETWORK_CACHE_V2_HIT_TIME_MS": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["hbambas@mozilla.com", "mnovotny@mozilla.com", "jduell@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
@@ -14120,7 +14120,7 @@
   },
   "CONTENT_FULL_PAINT_TIME": {
     "record_in_processes": ["main", "content", "gpu"],
-    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
+    "products": ["firefox", "fennec", "geckoview"],
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "jmuizelaar@mozilla.com", "dbolter@mozilla.com"],
     "bug_numbers": [1505858],
     "expires_in_version": "never",
@@ -14132,7 +14132,7 @@
   },
   "CONTENT_FRAME_TIME": {
     "record_in_processes": ["main", "gpu"],
-    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
+    "products": ["firefox", "fennec", "geckoview"],
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "rhunt@mozilla.com"],
     "bug_numbers": [1470528, 1509536],
     "expires_in_version": "never",
@@ -14144,7 +14144,7 @@
   },
   "CONTENT_FRAME_TIME_VSYNC": {
     "record_in_processes": ["main", "gpu"],
-    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
+    "products": ["firefox", "fennec", "geckoview"],
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "mwoodrow@mozilla.com"],
     "bug_numbers": [1517355],
     "expires_in_version": "never",
@@ -14275,7 +14275,7 @@
   },
   "TIME_TO_NON_BLANK_PAINT_MS": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["hkirschner@mozilla.com", "vchin@mozilla.com", "sphilp@mozilla.com", "dstrohmeier@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
@@ -14459,7 +14459,7 @@
   },
   "TIME_TO_DOM_CONTENT_LOADED_START_MS": {
     "record_in_processes": ["content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["wpan@mozilla.com"],
     "expires_in_version": "60",
     "kind": "exponential",
@@ -14492,7 +14492,7 @@
   },
   "TIME_TO_DOM_CONTENT_LOADED_END_MS": {
     "record_in_processes": ["content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["hkirschner@mozilla.com", "vchin@mozilla.com", "sphilp@mozilla.com", "dstrohmeier@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
@@ -14516,7 +14516,7 @@
   },
   "TIME_TO_LOAD_EVENT_START_MS": {
     "record_in_processes": ["content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["wpan@mozilla.com"],
     "expires_in_version": "60",
     "kind": "exponential",
@@ -14549,7 +14549,7 @@
   },
   "TIME_TO_LOAD_EVENT_END_MS": {
     "record_in_processes": ["content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["hkirschner@mozilla.com", "vchin@mozilla.com", "sphilp@mozilla.com", "dstrohmeier@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
@@ -14561,7 +14561,7 @@
   },
   "TIME_TO_RESPONSE_START_MS": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["hkirschner@mozilla.com", "vchin@mozilla.com", "sphilp@mozilla.com", "dstrohmeier@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
@@ -15259,7 +15259,7 @@
   },
   "BFCACHE_PAGE_RESTORED": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": ["sefeng@mozilla.com"],
     "bug_numbers": [1531917, 1551935],
     "expires_in_version": "never",
@@ -15428,7 +15428,7 @@
   },
   "GV_PAGE_LOAD_PROGRESS_MS": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "fennec", "geckoview"],
+    "products": ["firefox", "fennec", "geckoview", "geckoview_streaming"],
     "alert_emails": [
       "geckoview-team@mozilla.com",
       "esawin@mozilla.com"
