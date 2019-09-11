@@ -951,10 +951,6 @@ pref("places.frecency.unvisitedTypedBonus", 200);
 // 2 - pre-populate site URL and pre-fetch certificate
 pref("browser.ssl_override_behavior", 2);
 
-// True if the user should be prompted when a web application supports
-// offline apps.
-pref("browser.offline-apps.notify", true);
-
 // if true, use full page zoom instead of text zoom
 pref("browser.zoom.full", true);
 
@@ -1935,19 +1931,6 @@ pref("identity.fxaccounts.service.monitorLoginUrl", "https://monitor.firefox.com
 #else
   pref("corroborator.enabled", true);
 #endif
-
-// Show notification popup for social tracking protection.
-pref("privacy.socialtracking.notification.enabled", true);
-// minimum number of page loads until showing popup.
-pref("privacy.socialtracking.notification.session.pageload.min", 4);
-// timestamp of last popup was shown.
-pref("privacy.socialtracking.notification.lastShown", "0");
-// don't show popup again within 2 days (2 * 86400 * 1000 milliseconds)
-pref("privacy.socialtracking.notification.period.min", 172800000);
-// current number of popup shown in the profile.
-pref("privacy.socialtracking.notification.counter", 0);
-// maximum number of popup shown in the profile.
-pref("privacy.socialtracking.notification.max", 2);
 
 // Disable WebIDE and ConnectPage by default (Bug 1539451)
 pref("devtools.webide.enabled", false);

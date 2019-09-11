@@ -228,9 +228,6 @@ pref("browser.cache.frecency_half_life_hours", 6);
 // AppCache over insecure connection is disabled by default
 pref("browser.cache.offline.insecure.enable",  false);
 
-// enable offline apps by default, disable prompt
-pref("offline-apps.allow_by_default",          true);
-
 // offline cache capacity in kilobytes
 pref("browser.cache.offline.capacity",         512000);
 
@@ -2253,7 +2250,7 @@ pref("security.directory",              "");
 pref("security.dialog_enable_delay", 1000);
 pref("security.notification_enable_delay", 500);
 
-#if defined(DEBUG) && !defined(ANDROID)
+#if defined(DEBUG)
   // For testing purposes only: Flipping this pref to true allows
   // to skip the assertion that every about page ships with a CSP.
   pref("csp.skip_about_page_has_csp_assert", false);
