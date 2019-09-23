@@ -54,6 +54,10 @@ class SourceText;
 
 namespace js {
 
+namespace coverage {
+class LCovSource;
+}  // namespace coverage
+
 namespace jit {
 class AutoKeepJitScripts;
 struct BaselineScript;
@@ -256,7 +260,7 @@ using UniqueScriptCounts = js::UniquePtr<ScriptCounts>;
 using ScriptCountsMap = HashMap<JSScript*, UniqueScriptCounts,
                                 DefaultHasher<JSScript*>, SystemAllocPolicy>;
 
-using ScriptNameMap = HashMap<JSScript*, JS::UniqueChars,
+using ScriptLCovMap = HashMap<JSScript*, coverage::LCovSource*,
                               DefaultHasher<JSScript*>, SystemAllocPolicy>;
 
 #ifdef MOZ_VTUNE
@@ -649,12 +653,25 @@ class ScriptSource {
   // function should be recorded before their first execution.
   UniquePtr<XDRIncrementalEncoder> xdrEncoder_ = nullptr;
 
-  // Instant at which the first parse of this source ended, or null
+  // Instant at which the first parse of this source started, or null
   // if the source hasn't been parsed yet.
   //
-  // Used for statistics purposes, to determine how much time code spends
-  // syntax parsed before being full parsed, to help determine whether
-  // our syntax parse vs. full parse heuristics are correct.
+  // Used for telemetry purposes, to evaluate the benefit of using a streaming
+  // parser.
+  mozilla::TimeStamp parseStarted_;
+
+  // Instant at which the top-level compilation starts emitting bytes, or null
+  // if the source hasn't been compiled yet.
+  //
+  // Used for telemetry purposes, to evaluate the cost of the front-end.
+  mozilla::TimeStamp emitStarted_;
+
+  // Instant at which the first compilation of this source ended, or null if the
+  // source hasn't been parsed yet.
+  //
+  // Used for statistics purposes, to determine how much time code spends syntax
+  // parsed before being full parsed, to help determine whether our syntax parse
+  // vs. full parse heuristics are correct.
   mozilla::TimeStamp parseEnded_;
 
   // A string indicating how this source code was introduced into the system.
@@ -1194,6 +1211,22 @@ class ScriptSource {
   bool xdrFinalizeEncoder(JS::TranscodeBuffer& buffer);
 
   const mozilla::TimeStamp parseEnded() const { return parseEnded_; }
+  const mozilla::TimeDuration parseTime() const {
+    return emitStarted_ - parseStarted_;
+  }
+  const mozilla::TimeDuration emitTime() const {
+    return parseEnded_ - emitStarted_;
+  }
+  // Record the timestamp at which this source is starting to be parsed.
+  void recordParseStarted() {
+    MOZ_ASSERT(parseStarted_.IsNull());
+    parseStarted_ = ReallyNow();
+  }
+  // Record the timestamp at which this source is starting to be parsed.
+  void recordEmitStarted() {
+    MOZ_ASSERT(emitStarted_.IsNull());
+    emitStarted_ = ReallyNow();
+  }
   // Inform `this` source that it has been fully parsed.
   void recordParseEnded() {
     MOZ_ASSERT(parseEnded_.IsNull());
@@ -2545,8 +2578,6 @@ class JSScript : public js::BaseScript {
     clearFlag(MutableFlags::HasRunOnce);
   }
 
-  bool hasScriptName();
-
   void setArgumentsHasVarBinding();
   bool argumentsAliasesFormals() const {
     return argumentsHasVarBinding() && hasMappedArgsObj();
@@ -2849,9 +2880,7 @@ class JSScript : public js::BaseScript {
 
  public:
   bool initScriptCounts(JSContext* cx);
-  bool initScriptName(JSContext* cx);
   js::ScriptCounts& getScriptCounts();
-  const char* getScriptName();
   js::PCCounts* maybeGetPCCounts(jsbytecode* pc);
   const js::PCCounts* maybeGetThrowCounts(jsbytecode* pc);
   js::PCCounts* getThrowCounts(jsbytecode* pc);
@@ -2861,7 +2890,6 @@ class JSScript : public js::BaseScript {
   js::jit::IonScriptCounts* getIonCounts();
   void releaseScriptCounts(js::ScriptCounts* counts);
   void destroyScriptCounts();
-  void destroyScriptName();
   void clearHasScriptCounts();
   void resetScriptCounts();
 

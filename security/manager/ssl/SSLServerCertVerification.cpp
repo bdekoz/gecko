@@ -202,20 +202,14 @@ class SSLServerCertVerificationResult : public Runnable {
  public:
   NS_DECL_NSIRUNNABLE
 
-  SSLServerCertVerificationResult(
-      nsNSSSocketInfo* infoObject, PRErrorCode errorCode,
-      Telemetry::HistogramID telemetryID = Telemetry::HistogramCount,
-      uint32_t telemetryValue = -1);
+  SSLServerCertVerificationResult(nsNSSSocketInfo* infoObject,
+                                  PRErrorCode errorCode);
 
   void Dispatch();
 
  private:
   const RefPtr<nsNSSSocketInfo> mInfoObject;
-
- public:
   const PRErrorCode mErrorCode;
-  const Telemetry::HistogramID mTelemetryID;
-  const uint32_t mTelemetryValue;
 };
 
 class CertErrorRunnable : public SyncRunnableBase {
@@ -623,8 +617,8 @@ SSLServerCertVerificationResult* CertErrorRunnable::CheckCertOverrides() {
                 ? mErrorCodeMismatch
                 : mErrorCodeTime ? mErrorCodeTime : mDefaultErrorCodeToReport;
 
-  SSLServerCertVerificationResult* result = new SSLServerCertVerificationResult(
-      mInfoObject, errorCodeToReport, Telemetry::HistogramCount, -1);
+  SSLServerCertVerificationResult* result =
+      new SSLServerCertVerificationResult(mInfoObject, errorCodeToReport);
 
   return result;
 }
@@ -756,7 +750,6 @@ class SSLServerCertVerificationJob : public Runnable {
   const uint32_t mProviderFlags;
   const Time mTime;
   const PRTime mPRTime;
-  const TimeStamp mJobStartTime;
   Maybe<nsTArray<uint8_t>> mStapledOCSPResponse;
   Maybe<nsTArray<uint8_t>> mSCTsFromTLSExtension;
 };
@@ -777,7 +770,6 @@ SSLServerCertVerificationJob::SSLServerCertVerificationJob(
       mProviderFlags(providerFlags),
       mTime(time),
       mPRTime(prtime),
-      mJobStartTime(TimeStamp::Now()),
       mStapledOCSPResponse(std::move(stapledOCSPResponse)),
       mSCTsFromTLSExtension(std::move(sctsFromTLSExtension)) {}
 
@@ -1320,14 +1312,48 @@ static void CollectCertTelemetry(
   }
 }
 
+static void AuthCertificateSetResults(
+    nsNSSSocketInfo* aInfoObject, const UniqueCERTCertificate& aCert,
+    UniqueCERTCertList& aBuiltCertChain, UniqueCERTCertList& aPeerCertChain,
+    const CertificateTransparencyInfo& aCertificateTransparencyInfo,
+    SECOidTag aEvOidPolicy, bool aSucceeded) {
+  MOZ_ASSERT(aInfoObject);
+
+  if (aSucceeded) {
+    // Certificate verification succeeded. Delete any potential record of
+    // certificate error bits.
+    RememberCertErrorsTable::GetInstance().RememberCertHasError(aInfoObject,
+                                                                SECSuccess);
+
+    EVStatus evStatus;
+    if (aEvOidPolicy == SEC_OID_UNKNOWN) {
+      evStatus = EVStatus::NotEV;
+    } else {
+      evStatus = EVStatus::EV;
+    }
+
+    RefPtr<nsNSSCertificate> nsc = nsNSSCertificate::Create(aCert.get());
+    aInfoObject->SetServerCert(nsc, evStatus);
+
+    aInfoObject->SetSucceededCertChain(std::move(aBuiltCertChain));
+    MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
+            ("AuthCertificate setting NEW cert %p", nsc.get()));
+
+    aInfoObject->SetCertificateTransparencyInfo(aCertificateTransparencyInfo);
+  } else {
+    // Certificate validation failed; store the peer certificate chain on
+    // infoObject so it can be used for error reporting.
+    aInfoObject->SetFailedCertChain(std::move(aPeerCertChain));
+  }
+}
+
 // Note: Takes ownership of |peerCertChain| if SECSuccess is not returned.
-SECStatus AuthCertificate(CertVerifier& certVerifier,
-                          nsNSSSocketInfo* infoObject,
-                          const UniqueCERTCertificate& cert,
-                          UniqueCERTCertList& peerCertChain,
-                          const Maybe<nsTArray<uint8_t>>& stapledOCSPResponse,
-                          const Maybe<nsTArray<uint8_t>>& sctsFromTLSExtension,
-                          uint32_t providerFlags, Time time) {
+Result AuthCertificate(CertVerifier& certVerifier, nsNSSSocketInfo* infoObject,
+                       const UniqueCERTCertificate& cert,
+                       UniqueCERTCertList& peerCertChain,
+                       const Maybe<nsTArray<uint8_t>>& stapledOCSPResponse,
+                       const Maybe<nsTArray<uint8_t>>& sctsFromTLSExtension,
+                       uint32_t providerFlags, Time time) {
   MOZ_ASSERT(infoObject);
   MOZ_ASSERT(cert);
 
@@ -1362,37 +1388,10 @@ SECStatus AuthCertificate(CertVerifier& certVerifier,
                        sha1ModeResult, pinningTelemetryInfo, builtCertChain,
                        certificateTransparencyInfo);
 
-  if (rv == Success) {
-    // Certificate verification succeeded. Delete any potential record of
-    // certificate error bits.
-    RememberCertErrorsTable::GetInstance().RememberCertHasError(infoObject,
-                                                                SECSuccess);
-
-    EVStatus evStatus;
-    if (evOidPolicy == SEC_OID_UNKNOWN) {
-      evStatus = EVStatus::NotEV;
-    } else {
-      evStatus = EVStatus::EV;
-    }
-
-    RefPtr<nsNSSCertificate> nsc = nsNSSCertificate::Create(cert.get());
-    infoObject->SetServerCert(nsc, evStatus);
-
-    infoObject->SetSucceededCertChain(std::move(builtCertChain));
-    MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
-            ("AuthCertificate setting NEW cert %p", nsc.get()));
-
-    infoObject->SetCertificateTransparencyInfo(certificateTransparencyInfo);
-  }
-
-  if (rv != Success) {
-    // Certificate validation failed; store the peer certificate chain on
-    // infoObject so it can be used for error reporting.
-    infoObject->SetFailedCertChain(std::move(peerCertChain));
-    PR_SetError(MapResultToPRErrorCode(rv), 0);
-  }
-
-  return rv == Success ? SECSuccess : SECFailure;
+  AuthCertificateSetResults(infoObject, cert, builtCertChain, peerCertChain,
+                            certificateTransparencyInfo, evOidPolicy,
+                            rv == Success);
+  return rv;
 }
 
 /*static*/
@@ -1449,45 +1448,36 @@ SECStatus SSLServerCertVerificationJob::Dispatch(
 
 NS_IMETHODIMP
 SSLServerCertVerificationJob::Run() {
-  // Runs on a cert verification thread
+  // Runs on a cert verification thread and only on parent process.
+  MOZ_ASSERT(XRE_IsParentProcess());
 
   MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
           ("[%p] SSLServerCertVerificationJob::Run\n", mInfoObject.get()));
 
-  PRErrorCode error;
+  TimeStamp jobStartTime = TimeStamp::Now();
+  Result rv = AuthCertificate(*mCertVerifier, mInfoObject, mCert,
+                              mPeerCertChain, mStapledOCSPResponse,
+                              mSCTsFromTLSExtension, mProviderFlags, mTime);
+  MOZ_ASSERT(
+      (mPeerCertChain && rv == Success) || (!mPeerCertChain && rv != Success),
+      "AuthCertificate() should take ownership of chain on failure");
 
-  Telemetry::HistogramID successTelemetry =
-      Telemetry::SSL_SUCCESFUL_CERT_VALIDATION_TIME_MOZILLAPKIX;
-  Telemetry::HistogramID failureTelemetry =
-      Telemetry::SSL_INITIAL_FAILED_CERT_VALIDATION_TIME_MOZILLAPKIX;
-
-  // Reset the error code here so we can detect if AuthCertificate fails to
-  // set the error code if/when it fails.
-  PR_SetError(0, 0);
-  SECStatus rv = AuthCertificate(*mCertVerifier, mInfoObject, mCert,
-                                 mPeerCertChain, mStapledOCSPResponse,
-                                 mSCTsFromTLSExtension, mProviderFlags, mTime);
-  MOZ_ASSERT((mPeerCertChain && rv == SECSuccess) ||
-                 (!mPeerCertChain && rv != SECSuccess),
-             "AuthCertificate() should take ownership of chain on failure");
-  if (rv == SECSuccess) {
-    uint32_t interval =
-        (uint32_t)((TimeStamp::Now() - mJobStartTime).ToMilliseconds());
-    RefPtr<SSLServerCertVerificationResult> restart(
-        new SSLServerCertVerificationResult(mInfoObject, 0, successTelemetry,
-                                            interval));
-    restart->Dispatch();
+  if (rv == Success) {
+    Telemetry::AccumulateTimeDelta(
+        Telemetry::SSL_SUCCESFUL_CERT_VALIDATION_TIME_MOZILLAPKIX,
+        jobStartTime, TimeStamp::Now());
     Telemetry::Accumulate(Telemetry::SSL_CERT_ERROR_OVERRIDES, 1);
+    RefPtr<SSLServerCertVerificationResult> runnable(
+        new SSLServerCertVerificationResult(mInfoObject, 0));
+    runnable->Dispatch();
     return NS_OK;
   }
 
-  // Note: the interval is not calculated once as PR_GetError MUST be called
-  // before any other  function call
-  error = PR_GetError();
+  Telemetry::AccumulateTimeDelta(
+      Telemetry::SSL_INITIAL_FAILED_CERT_VALIDATION_TIME_MOZILLAPKIX,
+      jobStartTime, TimeStamp::Now());
 
-  TimeStamp now = TimeStamp::Now();
-  Telemetry::AccumulateTimeDelta(failureTelemetry, mJobStartTime, now);
-
+  PRErrorCode error = MapResultToPRErrorCode(rv);
   if (error != 0) {
     RefPtr<CertErrorRunnable> runnable(
         CreateCertErrorRunnable(*mCertVerifier, error, mInfoObject, mCert,
@@ -1640,19 +1630,10 @@ SECStatus AuthCertificateHook(void* arg, PRFileDesc* fd, PRBool checkSig,
 }
 
 SSLServerCertVerificationResult::SSLServerCertVerificationResult(
-    nsNSSSocketInfo* infoObject, PRErrorCode errorCode,
-    Telemetry::HistogramID telemetryID, uint32_t telemetryValue)
+    nsNSSSocketInfo* infoObject, PRErrorCode errorCode)
     : Runnable("psm::SSLServerCertVerificationResult"),
       mInfoObject(infoObject),
-      mErrorCode(errorCode),
-      mTelemetryID(telemetryID),
-      mTelemetryValue(telemetryValue) {
-  // We accumulate telemetry for (only) successful validations on the main
-  // thread to avoid adversely affecting performance by acquiring the mutex that
-  // we use when accumulating the telemetry for unsuccessful validations.
-  // Unsuccessful validations times are accumulated elsewhere.
-  MOZ_ASSERT(telemetryID == Telemetry::HistogramCount || errorCode == 0);
-}
+      mErrorCode(errorCode) {}
 
 void SSLServerCertVerificationResult::Dispatch() {
   nsresult rv;
@@ -1667,9 +1648,6 @@ void SSLServerCertVerificationResult::Dispatch() {
 NS_IMETHODIMP
 SSLServerCertVerificationResult::Run() {
   // TODO: Assert that we're on the socket transport thread
-  if (mTelemetryID != Telemetry::HistogramCount) {
-    Telemetry::Accumulate(mTelemetryID, mTelemetryValue);
-  }
   mInfoObject->SetCertVerificationResult(mErrorCode);
   return NS_OK;
 }

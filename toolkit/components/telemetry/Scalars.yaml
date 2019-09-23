@@ -285,6 +285,7 @@ browser.engagement:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
     record_into_store:
@@ -516,27 +517,6 @@ storage.sync.api.usage:
     keyed: true
     notification_emails:
       - eglassercamp@mozilla.com
-    release_channel_collection: opt-out
-    products:
-      - 'firefox'
-      - 'fennec'
-      - 'geckoview'
-    record_in_processes:
-      - main
-
-services.sync:
-  sync_login_state_transitions:
-    bug_numbers:
-      - 1375635
-      - 1523644
-    description: >
-      Records transitions between login states of "success", "unverified"
-      and "rejected.
-    expires: "72"
-    kind: boolean
-    keyed: true
-    notification_emails:
-      - sync-staff@mozilla.com
     release_channel_collection: opt-out
     products:
       - 'firefox'
@@ -2261,6 +2241,7 @@ telemetry:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - all
 
@@ -2356,6 +2337,7 @@ telemetry:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -2426,6 +2408,7 @@ telemetry:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
     record_into_store:
@@ -2445,6 +2428,7 @@ telemetry:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
     record_into_store:
@@ -3125,6 +3109,24 @@ update:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+    record_in_processes:
+      - main
+    operating_systems:
+      - windows
+
+  fix_permissions_attempted:
+    bug_numbers:
+      - 1577317
+    description: Set when we attempt to fix update directory permissions.
+    expires: "76"
+    kind: boolean
+    notification_emails:
+      - application-update-telemetry-alerts@mozilla.com
+      - agashlin@mozilla.com
+      - rstrong@mozilla.com
+    release_channel_collection: opt-out
+    products:
+      - 'firefox'
     record_in_processes:
       - main
     operating_systems:
@@ -4138,6 +4140,23 @@ browser.search:
     record_in_processes:
       - main
 
+browser.searchinit:
+  engines_cache_corrupted:
+    bug_numbers:
+      - 1578807
+    description: >-
+          Whether the list of engines in the search cache was found to be corrupt during initialization.
+    expires: "77"
+    kind: boolean
+    notification_emails:
+      - fx-search@mozilla.com
+      - mbanner@mozilla.com
+    release_channel_collection: opt-out
+    products:
+      - 'firefox'
+    record_in_processes:
+      - main
+
 encoding:
   override_used:
     bug_numbers:
@@ -4207,6 +4226,7 @@ startup:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - main
     record_into_store:
@@ -4397,6 +4417,7 @@ blocklist:
     products:
       - 'firefox'
       - 'fennec'
+      - 'thunderbird'
     record_in_processes:
       - main
 
@@ -4417,6 +4438,7 @@ blocklist:
     products:
       - 'firefox'
       - 'fennec'
+      - 'thunderbird'
     record_in_processes:
       - main
 
@@ -4436,6 +4458,7 @@ blocklist:
       - awagner@mozilla.com
     products:
       - 'firefox'
+      - 'thunderbird'
     record_in_processes:
       - main
 
@@ -4455,6 +4478,7 @@ blocklist:
     products:
       - 'firefox'
       - 'fennec'
+      - 'thunderbird'
     record_in_processes:
       - main
 
@@ -4471,6 +4495,7 @@ firstStartup:
     release_channel_collection: opt-out
     products:
       - 'firefox'
+      - 'thunderbird'
     record_in_processes:
       - main
 
@@ -4493,6 +4518,7 @@ telemetry.test:
       - 'fennec'
       - 'geckoview'
       - 'geckoview_streaming'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4510,6 +4536,7 @@ telemetry.test:
       - 'fennec'
       - 'geckoview'
       - 'geckoview_streaming'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4527,6 +4554,7 @@ telemetry.test:
       - 'fennec'
       - 'geckoview'
       - 'geckoview_streaming'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4542,6 +4570,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4557,6 +4586,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4573,6 +4603,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4589,6 +4620,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4606,6 +4638,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4623,6 +4656,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4639,6 +4673,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4655,6 +4690,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
 
@@ -4671,6 +4707,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'content'
 
@@ -4687,6 +4724,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
       - 'content'
@@ -4703,6 +4741,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'content'
 
@@ -4718,6 +4757,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'socket'
 
@@ -4733,6 +4773,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'all'
 
@@ -4748,6 +4789,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'all_childs'
 
@@ -4763,6 +4805,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'all'
 
@@ -4778,6 +4821,7 @@ telemetry.test:
       - 'all'
     products:
       - firefox
+      - thunderbird
 
   keyed_desktop_only:
     bug_numbers:
@@ -4792,6 +4836,7 @@ telemetry.test:
       - 'all'
     products:
       - firefox
+      - thunderbird
 
   multiproduct:
     bug_numbers:
@@ -4807,6 +4852,7 @@ telemetry.test:
       - firefox
       - fennec
       - geckoview
+      - thunderbird
 
   mobile_only:
     bug_numbers:
@@ -4863,6 +4909,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
     record_into_store:
@@ -4881,6 +4928,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
     record_into_store:
@@ -4899,6 +4947,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
     record_into_store:
@@ -4918,6 +4967,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
     record_into_store:
@@ -4937,6 +4987,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
     record_into_store:
@@ -4957,6 +5008,7 @@ telemetry.test:
       - 'firefox'
       - 'fennec'
       - 'geckoview'
+      - 'thunderbird'
     record_in_processes:
       - 'main'
     record_into_store:

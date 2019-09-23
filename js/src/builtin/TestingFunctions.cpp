@@ -7,11 +7,14 @@
 #include "builtin/TestingFunctions.h"
 
 #include "mozilla/Atomics.h"
+#include "mozilla/Casting.h"
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Move.h"
+#include "mozilla/Span.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/TextUtils.h"
+#include "mozilla/Tuple.h"
 #include "mozilla/Unused.h"
 
 #include <algorithm>
@@ -96,7 +99,12 @@
 using namespace js;
 
 using mozilla::ArrayLength;
+using mozilla::AssertedCast;
+using mozilla::AsWritableChars;
+using mozilla::MakeSpan;
 using mozilla::Maybe;
+using mozilla::Tie;
+using mozilla::Tuple;
 
 using JS::AutoStableStringChars;
 using JS::CompileOptions;
@@ -307,6 +315,15 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
   value = BooleanValue(false);
 #endif
   if (!JS_SetProperty(cx, info, "tsan", value)) {
+    return false;
+  }
+
+#ifdef MOZ_UBSAN
+  value = BooleanValue(true);
+#else
+  value = BooleanValue(false);
+#endif
+  if (!JS_SetProperty(cx, info, "ubsan", value)) {
     return false;
   }
 
@@ -1786,6 +1803,27 @@ static bool DisableTrackAllocations(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
+static bool SetTestFilenameValidationCallback(JSContext* cx, unsigned argc,
+                                              Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  // Accept all filenames that start with "safe". In system code also accept
+  // filenames starting with "system".
+  auto testCb = [](const char* filename, bool isSystemRealm) -> bool {
+    if (strstr(filename, "safe") == filename) {
+      return true;
+    }
+    if (isSystemRealm && strstr(filename, "system") == filename) {
+      return true;
+    }
+    return false;
+  };
+  JS::SetFilenameValidationCallback(testCb);
+
+  args.rval().setUndefined();
+  return true;
+}
+
 static void FinalizeExternalString(const JSStringFinalizer* fin,
                                    char16_t* chars);
 
@@ -2404,9 +2442,9 @@ static bool SettlePromiseNow(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   Rooted<PromiseObject*> promise(cx, &args[0].toObject().as<PromiseObject>());
-  if (IsPromiseForAsync(promise)) {
+  if (IsPromiseForAsyncFunctionOrGenerator(promise)) {
     JS_ReportErrorASCII(
-        cx, "async function's promise shouldn't be manually settled");
+        cx, "async function/generator's promise shouldn't be manually settled");
     return false;
   }
 
@@ -2484,9 +2522,10 @@ static bool ResolvePromise(JSContext* cx, unsigned argc, Value* vp) {
     }
   }
 
-  if (IsPromiseForAsync(promise)) {
+  if (IsPromiseForAsyncFunctionOrGenerator(promise)) {
     JS_ReportErrorASCII(
-        cx, "async function's promise shouldn't be manually resolved");
+        cx,
+        "async function/generator's promise shouldn't be manually resolved");
     return false;
   }
 
@@ -2520,9 +2559,10 @@ static bool RejectPromise(JSContext* cx, unsigned argc, Value* vp) {
     }
   }
 
-  if (IsPromiseForAsync(promise)) {
+  if (IsPromiseForAsyncFunctionOrGenerator(promise)) {
     JS_ReportErrorASCII(
-        cx, "async function's promise shouldn't be manually rejected");
+        cx,
+        "async function/generator's promise shouldn't be manually rejected");
     return false;
   }
 
@@ -4696,7 +4736,7 @@ static bool GetLcovInfo(JSContext* cx, unsigned argc, Value* vp) {
   UniqueChars content;
   {
     AutoRealm ar(cx, global);
-    content.reset(js::GetCodeCoverageSummary(cx, &length));
+    content = js::GetCodeCoverageSummary(cx, &length);
   }
 
   if (!content) {
@@ -5817,6 +5857,56 @@ static bool MarkObjectPropertiesUnknown(JSContext* cx, unsigned argc,
   return true;
 }
 
+static bool EncodeAsUtf8InBuffer(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (!args.requireAtLeast(cx, "encodeAsUtf8InBuffer", 2)) {
+    return false;
+  }
+
+  RootedObject callee(cx, &args.callee());
+
+  if (!args[0].isString()) {
+    ReportUsageErrorASCII(cx, callee, "First argument must be a String");
+    return false;
+  }
+
+  // Create the amounts array early so that the raw pointer into Uint8Array
+  // data has as short a lifetime as possible
+  RootedArrayObject array(cx, NewDenseFullyAllocatedArray(cx, 2));
+  if (!array) {
+    return false;
+  }
+  array->ensureDenseInitializedLength(cx, 0, 2);
+
+  uint32_t length;
+  bool isSharedMemory;
+  uint8_t* data;
+  if (!args[1].isObject() ||
+      !JS_GetObjectAsUint8Array(&args[1].toObject(), &length, &isSharedMemory,
+                                &data) ||
+      isSharedMemory ||  // excluded views of SharedArrayBuffers
+      !data) {           // exclude views of detached ArrayBuffers
+    ReportUsageErrorASCII(cx, callee, "Second argument must be a Uint8Array");
+    return false;
+  }
+
+  Maybe<Tuple<size_t, size_t>> amounts = JS_EncodeStringToUTF8BufferPartial(
+      cx, args[0].toString(), AsWritableChars(MakeSpan(data, length)));
+  if (!amounts) {
+    ReportOutOfMemory(cx);
+    return false;
+  }
+
+  size_t unitsRead, bytesWritten;
+  Tie(unitsRead, bytesWritten) = *amounts;
+
+  array->initDenseElement(0, Int32Value(AssertedCast<int32_t>(unitsRead)));
+  array->initDenseElement(1, Int32Value(AssertedCast<int32_t>(bytesWritten)));
+
+  args.rval().setObject(*array);
+  return true;
+}
+
 JSScript* js::TestingFunctionArgumentToScript(
     JSContext* cx, HandleValue v, JSFunction** funp /* = nullptr */) {
   if (v.isString()) {
@@ -6129,6 +6219,11 @@ static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("disableTrackAllocations", DisableTrackAllocations, 0, 0,
 "disableTrackAllocations()",
 "  Stop capturing the JS stack at every allocation."),
+
+    JS_FN_HELP("setTestFilenameValidationCallback", SetTestFilenameValidationCallback, 0, 0,
+"setTestFilenameValidationCallback()",
+"  Set the filename validation callback to a callback that accepts only\n"
+"  filenames starting with 'safe' or (only in system realms) 'system'."),
 
     JS_FN_HELP("newExternalString", NewExternalString, 1, 0,
 "newExternalString(str)",
@@ -6848,6 +6943,14 @@ gc::ZealModeHelpText),
     JS_FN_HELP("markObjectPropertiesUnknown", MarkObjectPropertiesUnknown, 1, 0,
 "markObjectPropertiesUnknown(obj)",
 "  Mark all objects in obj's object group as having unknown properties.\n"),
+
+    JS_FN_HELP("encodeAsUtf8InBuffer", EncodeAsUtf8InBuffer, 2, 0,
+"encodeAsUtf8InBuffer(str, uint8Array)",
+"  Encode as many whole code points from the string str into the provided\n"
+"  Uint8Array as will completely fit in it, converting lone surrogates to\n"
+"  REPLACEMENT CHARACTER.  Return an array [r, w] where |r| is the\n"
+"  number of 16-bit units read and |w| is the number of bytes of UTF-8\n"
+"  written."),
 
     JS_FS_HELP_END
 };

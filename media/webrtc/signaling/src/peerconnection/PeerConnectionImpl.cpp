@@ -232,7 +232,7 @@ RTCStatsQuery::~RTCStatsQuery() {}
 NS_IMPL_ISUPPORTS0(PeerConnectionImpl)
 
 already_AddRefed<PeerConnectionImpl> PeerConnectionImpl::Constructor(
-    const dom::GlobalObject& aGlobal, ErrorResult& rv) {
+    const dom::GlobalObject& aGlobal) {
   RefPtr<PeerConnectionImpl> pc = new PeerConnectionImpl(&aGlobal);
 
   CSFLogDebug(LOGTAG, "Created PeerConnection: %p", pc.get());
@@ -2461,7 +2461,7 @@ void PeerConnectionImpl::IceConnectionStateChange(
       if (!mIceFinished && !mIceStartTime.IsNull() &&
           (iceJustFailed || iceJustSucceeded)) {
         Telemetry::AccumulateTimeDelta(
-            Telemetry::WEBRTC_HOSTNAME_OBFUSCATION_ENABLED_ICE_DURATION,
+            Telemetry::WEBRTC_HOSTNAME_OBFUSCATION_ENABLED_ICE_DURATION_MS,
             mIceStartTime, TimeStamp::Now());
       }
       if (iceJustSucceeded) {
@@ -2476,7 +2476,7 @@ void PeerConnectionImpl::IceConnectionStateChange(
       if (!mIceFinished && !mIceStartTime.IsNull() &&
           (iceJustFailed || iceJustSucceeded)) {
         Telemetry::AccumulateTimeDelta(
-            Telemetry::WEBRTC_HOSTNAME_OBFUSCATION_DISABLED_ICE_DURATION,
+            Telemetry::WEBRTC_HOSTNAME_OBFUSCATION_DISABLED_ICE_DURATION_MS,
             mIceStartTime, TimeStamp::Now());
       }
       if (iceJustSucceeded) {

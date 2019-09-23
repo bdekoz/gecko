@@ -1244,7 +1244,6 @@ JSContext::JSContext(JSRuntime* runtime, const JS::ContextOptions& options)
 #ifdef JS_TRACE_LOGGING
       traceLogger(nullptr),
 #endif
-      autoFlushICache_(this, nullptr),
       dtoaState(this, nullptr),
       suppressGC(this, 0),
       gcSweeping(this, false),
@@ -1294,12 +1293,11 @@ JSContext::JSContext(JSRuntime* runtime, const JS::ContextOptions& options)
       internalJobQueue(this),
       canSkipEnqueuingJobs(this, false),
       promiseRejectionTrackerCallback(this, nullptr),
-      promiseRejectionTrackerCallbackData(this, nullptr)
+      promiseRejectionTrackerCallbackData(this, nullptr),
 #ifdef JS_STRUCTURED_SPEW
-      ,
-      structuredSpewer_()
+      structuredSpewer_(),
 #endif
-{
+      insideDebuggerEvaluationWithOnNativeCallHook(this, nullptr) {
   MOZ_ASSERT(static_cast<JS::RootingContext*>(this) ==
              JS::RootingContext::get(this));
 }

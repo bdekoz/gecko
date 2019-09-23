@@ -26,21 +26,12 @@ left edge of the tabstrip. Really we just want the string to express the idea
 that this is a lightweight and reversible action that keeps your tab where you
 can reach it easily. -->
 <!ENTITY  pinTab.label                       "Pin Tab">
-<!-- LOCALIZATION NOTE(pinTab.accesskey, pinSelectedTabs.accesskey,
-unpinTab.accesskey, unpinSelectedTabs.accesskey): These share the
-same accesskey but will never be visible at the same time. -->
-<!ENTITY  pinTab.accesskey                   "P">
 <!ENTITY  unpinTab.label                     "Unpin Tab">
-<!-- LOCALIZATION NOTE(pinTab.accesskey, pinSelectedTabs.accesskey,
-unpinTab.accesskey, unpinSelectedTabs.accesskey): These share the
-same accesskey but will never be visible at the same time. -->
-<!ENTITY  unpinTab.accesskey                 "p">
 <!ENTITY  sendPageToDevice.label             "Send Page to Device">
 <!ENTITY  sendPageToDevice.accesskey         "n">
 <!ENTITY  sendLinkToDevice.label             "Send Link to Device">
 <!ENTITY  sendLinkToDevice.accesskey         "n">
 <!ENTITY  undoCloseTab.label                 "Undo Close Tab">
-<!ENTITY  undoCloseTab.accesskey             "U">
 <!ENTITY  hiddenTabs.label                   "Hidden Tabs">
 
 <!ENTITY  listAllTabs.label      "List all tabs">
@@ -107,8 +98,12 @@ convenience of Safari and Chrome users on macOS. See bug 1398988. -->
 <!ENTITY fxa.menu.firefoxAccount "&syncBrand.fxAccount.label;">
 <!ENTITY fxa.menu.signin.label "Sign in to &brandProductName;">
 <!ENTITY fxa.menu.turnOnSync.label "Turn on &syncBrand.shortName.label;">
-<!ENTITY fxa.menu.account.label "Account">
 <!ENTITY fxa.menu.firefoxServices.label "&brandProductName; Services">
+<!ENTITY fxa.menu.account.label "Account">
+<!ENTITY fxa.menu.settings.label "Settings">
+<!ENTITY fxa.menu.accountSettings.label "Account Settings">
+<!ENTITY fxa.menu.signOut.label "Sign Out…">
+<!ENTITY fxa.menu.deviceSettings.label "Device Settings">
 
 <!-- LOCALIZATION NOTE (fxa.service) Used to define the different FxA services
      for the Firefox Account toolbar menu screen.  -->
@@ -171,31 +166,7 @@ convenience of Safari and Chrome users on macOS. See bug 1398988. -->
 <!ENTITY printButton.label            "Print">
 <!ENTITY printButton.tooltip          "Print this page">
 
-<!ENTITY urlbar.viewSiteInfo.label                      "View site information">
-
-<!ENTITY urlbar.defaultNotificationAnchor.tooltip         "Open message panel">
-<!ENTITY urlbar.geolocationNotificationAnchor.tooltip     "Open location request panel">
-<!ENTITY urlbar.autoplayNotificationAnchor.tooltip        "Open autoplay panel">
-<!ENTITY urlbar.addonsNotificationAnchor.tooltip          "Open add-on installation message panel">
-<!ENTITY urlbar.canvasNotificationAnchor.tooltip          "Manage canvas extraction permission">
-<!ENTITY urlbar.indexedDBNotificationAnchor.tooltip       "Open offline storage message panel">
-<!ENTITY urlbar.passwordNotificationAnchor.tooltip        "Open save password message panel">
-<!ENTITY urlbar.pluginsNotificationAnchor.tooltip         "Manage plug-in use">
-<!ENTITY urlbar.webNotificationAnchor.tooltip             "Change whether you can receive notifications from the site">
-<!ENTITY urlbar.persistentStorageNotificationAnchor.tooltip     "Store data in Persistent Storage">
 <!ENTITY urlbar.remoteControlNotificationAnchor.tooltip   "Browser is under remote control">
-<!ENTITY urlbar.webAuthnAnchor.tooltip                    "Open Web Authentication panel">
-<!ENTITY urlbar.storageAccessAnchor.tooltip               "Open browsing activity permission panel">
-
-<!ENTITY urlbar.webRTCShareDevicesNotificationAnchor.tooltip      "Manage sharing your camera and/or microphone with the site">
-<!ENTITY urlbar.webRTCShareMicrophoneNotificationAnchor.tooltip   "Manage sharing your microphone with the site">
-<!ENTITY urlbar.webRTCShareScreenNotificationAnchor.tooltip       "Manage sharing your windows or screen with the site">
-
-<!ENTITY urlbar.servicesNotificationAnchor.tooltip        "Open install message panel">
-<!ENTITY urlbar.translateNotificationAnchor.tooltip       "Translate this page">
-<!ENTITY urlbar.translatedNotificationAnchor.tooltip      "Manage page translation">
-<!ENTITY urlbar.emeNotificationAnchor.tooltip             "Manage use of DRM software">
-<!ENTITY urlbar.midiNotificationAnchor.tooltip            "Open MIDI panel">
 
 <!ENTITY urlbar.permissionsGranted.tooltip       "You have granted this website additional permissions.">
 
@@ -337,9 +308,10 @@ convenience of Safari and Chrome users on macOS. See bug 1398988. -->
      the account. We also show links to download Firefox for android/ios. -->
 <!ENTITY appMenuRemoteTabs.noclients.subtitle "Want to see your tabs from other devices here?">
 <!ENTITY appMenuRemoteTabs.opensyncprefs.label "Open Sync Preferences">
-<!ENTITY appMenuRemoteTabs.notsignedin.label "Sign in to view a list of tabs from your other devices.">
+<!ENTITY appMenuRemoteTabs.welcome.label "View a list of tabs from your other devices.">
 <!ENTITY appMenuRemoteTabs.unverified.label "Your account needs to be verified.">
-<!ENTITY appMenuRemoteTabs.signin.label "Sign in to Sync">
+<!ENTITY appMenuRemoteTabs.signintosync.label "Sign in to &syncBrand.shortName.label;…">
+<!ENTITY appMenuRemoteTabs.turnonsync.label "Turn on &syncBrand.shortName.label;…">
 <!ENTITY appMenuRemoteTabs.managedevices.label "Manage Devices…">
 <!ENTITY appMenuRemoteTabs.sidebar.label "View Synced Tabs Sidebar">
 <!ENTITY appMenuRemoteTabs.hidesidebar.label "Hide Synced Tabs Sidebar">
@@ -775,7 +747,7 @@ you can use these alternative items. Otherwise, their values should be empty.  -
 <!ENTITY contentBlocking.trackingProtection4.label "Tracking Content">
 
 <!ENTITY contentBlocking.manageSettings2.label "Manage Protection Settings">
-<!ENTITY contentBlocking.manageSettings.accesskey "M">
+<!ENTITY contentBlocking.manageSettings2.accesskey "M">
 
 <!ENTITY contentBlocking.socialblock.label "Social Media Trackers">
 
@@ -826,9 +798,6 @@ you can use these alternative items. Otherwise, their values should be empty.  -
 <!ENTITY tabHideControlled.disableButton.accesskey "D">
 
 <!ENTITY pageActionButton.tooltip "Page actions">
-<!ENTITY pageAction.addToUrlbar.label "Add to Address Bar">
-<!ENTITY pageAction.removeFromUrlbar.label "Remove from Address Bar">
-<!ENTITY pageAction.manageExtension.label "Manage Extension…">
 
 <!ENTITY sendToDevice.syncNotReady.label "Syncing Devices…">
 
