@@ -9,7 +9,12 @@ ChromeUtils.import("resource://testing-common/ContentTaskUtils.jsm", this);
 ChromeUtils.import("resource://testing-common/TelemetryTestUtils.jsm", this);
 
 add_task(async function common_initialize() {
-  await SpecialPowers.pushPrefEnv({ set: [["signon.rememberSignons", true]] });
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["signon.rememberSignons", true],
+      ["toolkit.telemetry.ipcBatchTimeout", 0],
+    ],
+  });
 });
 
 registerCleanupFunction(
@@ -301,7 +306,7 @@ async function getCaptureDoorhangerThatMayOpen(
 
 function getDoorhangerButton(aPopup, aButtonIndex) {
   let notifications = aPopup.owner.panel.children;
-  ok(notifications.length > 0, "at least one notification displayed");
+  ok(!!notifications.length, "at least one notification displayed");
   ok(true, notifications.length + " notification(s)");
   let notification = notifications[0];
 
@@ -440,7 +445,10 @@ async function waitForPasswordManagerDialog(openingFunc) {
 
 async function waitForPasswordManagerTab(openingFunc, waitForFilter) {
   info("waiting for new tab to open");
-  let tabPromise = BrowserTestUtils.waitForNewTab(gBrowser, null);
+  let tabPromise = BrowserTestUtils.waitForNewTab(
+    gBrowser,
+    url => url.includes("about:logins") && !url.includes("entryPoint=")
+  );
   await openingFunc();
   let tab = await tabPromise;
   ok(tab, "got password management tab");

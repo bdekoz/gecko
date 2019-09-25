@@ -45,12 +45,9 @@ function getMatrixFromTransform(transform) {
           m14, m24, m34, 1];
 }
 
-function getGFXTransformFromPosition(x, y, z) {
+function composeGFXTransform(fakeTransformInit) {
   let transform = new gfx.mojom.Transform();
-  transform.matrix = getMatrixFromTransform({
-    position: [x, y, z],
-    orientation: [0, 0, 0, 1]
-  });
+  transform.matrix = getMatrixFromTransform(fakeTransformInit);
   return transform;
 }
 
@@ -285,8 +282,21 @@ class MockRuntime {
   }
 
   simulateVisibilityChange(visibilityState) {
-    // TODO(https://crbug.com/982099): Chrome currently does not have a way for
-    // devices to bubble up any form of visibilityChange.
+    let mojoState = null;
+    switch(visibilityState) {
+      case "visible":
+        mojoState = device.mojom.XRVisibilityState.VISIBLE;
+        break;
+      case "visible-blurred":
+        mojoState = device.mojom.XRVisibilityState.VISIBLE_BLURRED;
+        break;
+      case "hidden":
+        mojoState = device.mojom.XRVisibilityState.HIDDEN;
+        break;
+    }
+    if (mojoState) {
+      this.sessionClient_.onVisibilityStateChanged(mojoState);
+    }
   }
 
   setBoundsGeometry(bounds) {
@@ -378,7 +388,10 @@ class MockRuntime {
           leftDegrees: 50.899,
           rightDegrees: 35.197
         },
-        headFromEye: getGFXTransformFromPosition(-0.032, 0, 0),
+        headFromEye: composeGFXTransform({
+          position: [-0.032, 0, 0],
+          orientation: [0, 0, 0, 1]
+        }),
         renderWidth: 20,
         renderHeight: 20
       },
@@ -389,7 +402,10 @@ class MockRuntime {
           leftDegrees: 50.899,
           rightDegrees: 35.197
         },
-        headFromEye: getGFXTransformFromPosition(0.032, 0, 0),
+        headFromEye: composeGFXTransform({
+          position: [0.032, 0, 0],
+          orientation: [0, 0, 0, 1]
+        }),
         renderWidth: 20,
         renderHeight: 20
       },
@@ -400,31 +416,38 @@ class MockRuntime {
   // This function converts between the matrix provided by the WebXR test API
   // and the internal data representation.
   getEye(fakeXRViewInit) {
-    let m = fakeXRViewInit.projectionMatrix;
+    let fov = null;
 
-    function toDegrees(tan) {
-      return Math.atan(tan) * 180 / Math.PI;
-    }
+    if (fakeXRViewInit.fieldOfView) {
+      fov = {
+        upDegrees: fakeXRViewInit.fieldOfView.upDegrees,
+        downDegrees: fakeXRViewInit.fieldOfView.downDegrees,
+        leftDegrees: fakeXRViewInit.fieldOfView.leftDegrees,
+        rightDegrees: fakeXRViewInit.fieldOfView.rightDegrees
+      };
+    } else {
+      let m = fakeXRViewInit.projectionMatrix;
 
-    let xScale = m[0];
-    let yScale = m[5];
-    let near = m[14] / (m[10] - 1);
-    let far = m[14] / (m[10] - 1);
-    let leftTan = (1 - m[8]) / m[0];
-    let rightTan = (1 + m[8]) / m[0];
-    let upTan = (1 + m[9]) / m[5];
-    let downTan = (1 - m[9]) / m[5];
+      function toDegrees(tan) {
+        return Math.atan(tan) * 180 / Math.PI;
+      }
 
-    let offset = fakeXRViewInit.viewOffset.position;
+      let leftTan = (1 - m[8]) / m[0];
+      let rightTan = (1 + m[8]) / m[0];
+      let upTan = (1 + m[9]) / m[5];
+      let downTan = (1 - m[9]) / m[5];
 
-    return {
-      fieldOfView: {
+      fov = {
         upDegrees: toDegrees(upTan),
         downDegrees: toDegrees(downTan),
         leftDegrees: toDegrees(leftTan),
         rightDegrees: toDegrees(rightTan)
-      },
-      headFromEye: getGFXTransformFromPosition(offset[0], offset[1], offset[2]),
+      };
+    }
+
+    return {
+      fieldOfView: fov,
+      headFromEye: composeGFXTransform(fakeXRViewInit.viewOffset),
       renderWidth: fakeXRViewInit.resolution.width,
       renderHeight: fakeXRViewInit.resolution.height
     };

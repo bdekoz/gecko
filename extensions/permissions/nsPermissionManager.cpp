@@ -157,6 +157,22 @@ bool IsPreloadPermission(const nsACString& aType) {
   return false;
 }
 
+void OriginAppendOASuffix(OriginAttributes aOriginAttributes,
+                          nsACString& aOrigin) {
+  // mPrivateBrowsingId must be set to false because PermissionManager is not
+  // supposed to have any knowledge of private browsing. Allowing it to be true
+  // changes the suffix being hashed.
+  aOriginAttributes.mPrivateBrowsingId = 0;
+
+  // Disable userContext for permissions.
+  aOriginAttributes.StripAttributes(
+      mozilla::OriginAttributes::STRIP_USER_CONTEXT_ID);
+
+  nsAutoCString oaSuffix;
+  aOriginAttributes.CreateSuffix(oaSuffix);
+  aOrigin.Append(oaSuffix);
+}
+
 nsresult GetOriginFromPrincipal(nsIPrincipal* aPrincipal, nsACString& aOrigin) {
   nsresult rv = aPrincipal->GetOriginNoSuffix(aOrigin);
   // The principal may belong to the about:blank content viewer, so this can be
@@ -174,16 +190,22 @@ nsresult GetOriginFromPrincipal(nsIPrincipal* aPrincipal, nsACString& aOrigin) {
     return NS_ERROR_FAILURE;
   }
 
-  // mPrivateBrowsingId must be set to false because PermissionManager is not
-  // supposed to have any knowledge of private browsing. Allowing it to be true
-  // changes the suffix being hashed.
-  attrs.mPrivateBrowsingId = 0;
+  OriginAppendOASuffix(attrs, aOrigin);
 
-  // Disable userContext for permissions.
-  attrs.StripAttributes(mozilla::OriginAttributes::STRIP_USER_CONTEXT_ID);
+  return NS_OK;
+}
 
-  attrs.CreateSuffix(suffix);
-  aOrigin.Append(suffix);
+nsresult GetOriginFromURIAndOA(nsIURI* aURI,
+                               const OriginAttributes* aOriginAttributes,
+                               nsACString& aOrigin) {
+  nsAutoCString origin(aOrigin);
+  nsresult rv = ContentPrincipal::GenerateOriginNoSuffixFromURI(aURI, origin);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  OriginAppendOASuffix(*aOriginAttributes, origin);
+
+  aOrigin = origin;
+
   return NS_OK;
 }
 
@@ -781,6 +803,19 @@ nsPermissionManager::PermissionKey::CreateFromPrincipal(
 }
 
 nsPermissionManager::PermissionKey*
+nsPermissionManager::PermissionKey::CreateFromURIAndOriginAttributes(
+    nsIURI* aURI, const OriginAttributes* aOriginAttributes,
+    nsresult& aResult) {
+  nsAutoCString origin;
+  aResult = GetOriginFromURIAndOA(aURI, aOriginAttributes, origin);
+  if (NS_WARN_IF(NS_FAILED(aResult))) {
+    return nullptr;
+  }
+
+  return new PermissionKey(origin);
+}
+
+nsPermissionManager::PermissionKey*
 nsPermissionManager::PermissionKey::CreateFromURI(nsIURI* aURI,
                                                   nsresult& aResult) {
   nsAutoCString origin;
@@ -899,8 +934,6 @@ void nsPermissionManager::Startup() {
 
 #define PERMISSIONS_FILE_NAME "permissions.sqlite"
 #define HOSTS_SCHEMA_VERSION 10
-
-#define HOSTPERM_FILE_NAME "hostperm.1"
 
 // Default permissions are read from a URL - this is the preference we read
 // to find that URL. If not set, don't use any default permissions.
@@ -1651,7 +1684,7 @@ nsresult nsPermissionManager::InitDB(bool aRemoveFile) {
   // check whether to import or just read in the db
   if (tableExists) return Read();
 
-  return Import();
+  return NS_OK;
 }
 
 // sets the schema version and creates the moz_perms table.
@@ -2275,6 +2308,14 @@ nsPermissionManager::TestPermission(nsIURI* aURI, const nsACString& aType,
                               false, true);
 }
 
+nsresult nsPermissionManager::LegacyTestPermissionFromURI(
+    nsIURI* aURI, const mozilla::OriginAttributes* aOriginAttributes,
+    const nsACString& aType, uint32_t* aPermission) {
+  return CommonTestPermission(aURI, aOriginAttributes, -1, aType, aPermission,
+                              nsIPermissionManager::UNKNOWN_ACTION, false,
+                              false, true);
+}
+
 NS_IMETHODIMP
 nsPermissionManager::TestPermissionFromWindow(mozIDOMWindow* aWindow,
                                               const nsACString& aType,
@@ -2366,12 +2407,14 @@ nsPermissionManager::GetPermissionObject(nsIPrincipal* aPrincipal,
 }
 
 nsresult nsPermissionManager::CommonTestPermissionInternal(
-    nsIPrincipal* aPrincipal, nsIURI* aURI, int32_t aTypeIndex,
+    nsIPrincipal* aPrincipal, nsIURI* aURI,
+    const OriginAttributes* aOriginAttributes, int32_t aTypeIndex,
     const nsACString& aType, uint32_t* aPermission, bool aExactHostMatch,
     bool aIncludingSession) {
   MOZ_ASSERT(aPrincipal || aURI);
-  MOZ_ASSERT_IF(aPrincipal, !aURI);
   NS_ENSURE_ARG_POINTER(aPrincipal || aURI);
+  MOZ_ASSERT_IF(aPrincipal, !aURI && !aOriginAttributes);
+  MOZ_ASSERT_IF(aURI || aOriginAttributes, !aPrincipal);
 
 #ifdef DEBUG
   {
@@ -2389,7 +2432,8 @@ nsresult nsPermissionManager::CommonTestPermissionInternal(
 
   PermissionHashKey* entry =
       aPrincipal ? GetPermissionHashKey(aPrincipal, aTypeIndex, aExactHostMatch)
-                 : GetPermissionHashKey(aURI, aTypeIndex, aExactHostMatch);
+                 : GetPermissionHashKey(aURI, aOriginAttributes, aTypeIndex,
+                                        aExactHostMatch);
   if (!entry || (!aIncludingSession &&
                  entry->GetPermission(aTypeIndex).mNonSessionExpireType ==
                      nsIPermissionManager::EXPIRE_SESSION)) {
@@ -2462,8 +2506,9 @@ nsPermissionManager::GetPermissionHashKey(nsIPrincipal* aPrincipal,
 // accepts host on the format "<foo>". This will perform an exact match lookup
 // as the string doesn't contain any dots.
 nsPermissionManager::PermissionHashKey*
-nsPermissionManager::GetPermissionHashKey(nsIURI* aURI, uint32_t aType,
-                                          bool aExactHostMatch) {
+nsPermissionManager::GetPermissionHashKey(
+    nsIURI* aURI, const OriginAttributes* aOriginAttributes, uint32_t aType,
+    bool aExactHostMatch) {
   MOZ_ASSERT(aURI);
 
 #ifdef DEBUG
@@ -2479,8 +2524,15 @@ nsPermissionManager::GetPermissionHashKey(nsIURI* aURI, uint32_t aType,
 #endif
 
   nsresult rv;
-  RefPtr<PermissionKey> key =
-      aURI ? PermissionKey::CreateFromURI(aURI, rv) : nullptr;
+  RefPtr<PermissionKey> key;
+
+  if (aOriginAttributes) {
+    key = PermissionKey::CreateFromURIAndOriginAttributes(
+        aURI, aOriginAttributes, rv);
+  } else {
+    key = PermissionKey::CreateFromURI(aURI, rv);
+  }
+
   if (!key) {
     return nullptr;
   }
@@ -2524,7 +2576,8 @@ nsPermissionManager::GetPermissionHashKey(nsIURI* aURI, uint32_t aType,
       uri = GetNextSubDomainURI(aURI);
     }
     if (uri) {
-      return GetPermissionHashKey(uri, aType, aExactHostMatch);
+      return GetPermissionHashKey(uri, aOriginAttributes, aType,
+                                  aExactHostMatch);
     }
   }
 
@@ -2862,33 +2915,6 @@ nsresult nsPermissionManager::Read() {
 
 static const char kMatchTypeHost[] = "host";
 static const char kMatchTypeOrigin[] = "origin";
-
-// Import() will read a file from the profile directory and add them to the
-// database before deleting the file - ie, this is a one-shot operation that
-// will not succeed on subsequent runs as the file imported from is removed.
-nsresult nsPermissionManager::Import() {
-  nsresult rv;
-
-  nsCOMPtr<nsIFile> permissionsFile;
-  rv = NS_GetSpecialDirectory(NS_APP_USER_PROFILE_50_DIR,
-                              getter_AddRefs(permissionsFile));
-  if (NS_FAILED(rv)) return rv;
-
-  rv = permissionsFile->AppendNative(NS_LITERAL_CSTRING(HOSTPERM_FILE_NAME));
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsCOMPtr<nsIInputStream> fileInputStream;
-  rv = NS_NewLocalFileInputStream(getter_AddRefs(fileInputStream),
-                                  permissionsFile);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  rv = _DoImport(fileInputStream, mDBConn);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // we successfully imported and wrote to the DB - delete the old file.
-  permissionsFile->Remove(false);
-  return NS_OK;
-}
 
 // ImportDefaults will read a URL with default permissions and add them to the
 // in-memory copy of permissions.  The database is *not* written to.

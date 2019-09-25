@@ -2922,6 +2922,11 @@
 # Prefs starting with "general."
 #---------------------------------------------------------------------------
 
+- name: general.aboutConfig.enable
+  type: bool
+  value: true
+  mirror: always
+
 - name: general.smoothScroll
   type: RelaxedAtomicBool
   value: true
@@ -3592,6 +3597,11 @@
   value: 12
   mirror: always
 
+- name: idle_period.cross_process_scheduling
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+
 #---------------------------------------------------------------------------
 # Prefs starting with "image."
 #---------------------------------------------------------------------------
@@ -3739,7 +3749,7 @@
 # Maximum size for the surface cache, in kilobytes.
 - name: image.mem.surfacecache.max_size_kb
   type: uint32_t
-  value: 1024 * 1024
+  value: 2024 * 1024
   mirror: once
 
 # Minimum timeout for expiring unused images from the surface cache, in
@@ -4591,7 +4601,7 @@
 # Is path() supported in clip-path?
 - name: layout.css.clip-path-path.enabled
   type: RelaxedAtomicBool
-  value: false
+  value: true
   mirror: always
   rust: true
 
@@ -4607,25 +4617,25 @@
 # text underline offset
 - name: layout.css.text-underline-offset.enabled
   type: bool
-  value: @IS_EARLY_BETA_OR_EARLIER@
+  value: true
   mirror: always
 
 # text decoration thickness
 - name: layout.css.text-decoration-thickness.enabled
   type: bool
-  value: @IS_EARLY_BETA_OR_EARLIER@
+  value: true
   mirror: always
 
 # text decoration skip ink
 - name: layout.css.text-decoration-skip-ink.enabled
   type: bool
-  value: @IS_EARLY_BETA_OR_EARLIER@
+  value: true
   mirror: always
 
 # Is support for CSS column-span enabled?
 - name: layout.css.column-span.enabled
   type: bool
-  value: false
+  value: @IS_NIGHTLY_BUILD@
   mirror: always
 
 # Is support for CSS backdrop-filter enabled?
@@ -4952,7 +4962,7 @@
   mirror: always
   rust: true
 
-# Are style system use counters enabled?
+# Are counters for implemented CSS properties enabled?
 - name: layout.css.use-counters.enabled
   type: bool
   value: @IS_NOT_RELEASE_OR_BETA@
@@ -4986,6 +4996,14 @@
 # Pref to control whether display: -moz-box and display: -moz-inline-box are
 # parsed in content pages.
 - name: layout.css.xul-box-display-values.content.enabled
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+  rust: true
+
+# Pref to control whether display: -moz-box and display: -moz-inline-box are
+# "blockified" to "-moz-box" (rather than to "block")
+- name: layout.css.xul-box-display-values.survive-blockification.enabled
   type: RelaxedAtomicBool
   value: false
   mirror: always
@@ -5123,14 +5141,6 @@
 - name: layout.reflow.synthMouseMove
   type: bool
   value: true
-  mirror: always
-
-# Default to containerless scrolling.
-# This and code dependent on it should be removed once containerless scrolling
-# looks stable.
-- name: layout.scroll.root-frame-containers
-  type: RelaxedAtomicBool
-  value: false
   mirror: always
 
 # This pref is to be set by test code only.
@@ -5666,7 +5676,7 @@
 
 -   name: media.wmf.deblacklisting-for-telemetry-in-gpu-process
     type: RelaxedAtomicBool
-    value: false
+    value: true
     mirror: always
 
 -   name: media.wmf.amd.highres.enabled
@@ -6124,6 +6134,11 @@
   value: false
   mirror: always
 
+- name: media.hardwaremediakeys.enabled
+  type: bool
+  value: false
+  mirror: always
+
 - name: media.webrtc.platformencoder
   type: bool
   value: false
@@ -6480,8 +6495,17 @@
 # Time in milliseconds during which certain tasks are deprioritized during
 # page load.
 - name: page_load.deprioritization_period
-  type: uint32_t
+  type: RelaxedAtomicUint32
   value: 5000
+  mirror: always
+
+#---------------------------------------------------------------------------
+# Prefs starting with "permissions."
+#---------------------------------------------------------------------------
+
+- name: permissions.delegation.enable
+  type: bool
+  value: @IS_NIGHTLY_BUILD@
   mirror: always
 
 #---------------------------------------------------------------------------
@@ -6857,7 +6881,7 @@
 
 # Navigate-to CSP 3 directive
 - name: security.csp.enableNavigateTo
-  type: bool 
+  type: bool
   value: false
   mirror: always
 
@@ -7010,6 +7034,11 @@
   mirror: always
 
 - name: toolkit.telemetry.geckoview.streaming
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
+- name: toolkit.telemetry.testing.overrideProductsCheck
   type: RelaxedAtomicBool
   value: false
   mirror: always

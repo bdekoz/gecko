@@ -15,7 +15,6 @@
 #include "base/task.h"          // for NewRunnableMethod, etc
 #include "mozilla/StaticMutex.h"
 
-#include <xf86drm.h>
 #include "mozilla/widget/gbm.h"
 #include "mozilla/widget/linux-dmabuf-unstable-v1-client-protocol.h"
 
@@ -40,6 +39,11 @@ class nsWaylandDisplay {
   virtual ~nsWaylandDisplay();
 
   bool DispatchEventQueue();
+
+  void SyncBegin();
+  void SyncEnd();
+  void WaitForSyncEnd();
+
   bool Matches(wl_display* aDisplay);
 
   MessageLoop* GetDispatcherThreadLoop() { return mDispatcherThreadLoop; }
@@ -94,6 +98,7 @@ class nsWaylandDisplay {
   wl_subcompositor* mSubcompositor;
   wl_seat* mSeat;
   wl_shm* mShm;
+  wl_callback* mSyncCallback;
   gtk_primary_selection_device_manager* mPrimarySelectionDeviceManager;
   wl_registry* mRegistry;
   zwp_linux_dmabuf_v1* mDmabuf;

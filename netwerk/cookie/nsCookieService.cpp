@@ -64,6 +64,7 @@
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/Telemetry.h"
+#include "mozilla/TextUtils.h"
 #include "nsIConsoleService.h"
 #include "nsTPriorityQueue.h"
 #include "nsVariant.h"
@@ -2526,7 +2527,7 @@ nsCookieService::AddNative(const nsACString& aHost, const nsACString& aPath,
 nsresult nsCookieService::Remove(const nsACString& aHost,
                                  const OriginAttributes& aAttrs,
                                  const nsACString& aName,
-                                 const nsACString& aPath, bool aBlocked) {
+                                 const nsACString& aPath) {
   if (!mDBState) {
     NS_WARNING("No DBState! Profile already closed?");
     return NS_ERROR_NOT_AVAILABLE;
@@ -2556,20 +2557,6 @@ nsresult nsCookieService::Remove(const nsACString& aHost,
     RemoveCookieFromList(matchIter);
   }
 
-  // check if we need to add the host to the permissions blacklist.
-  if (aBlocked && mPermissionService) {
-    // strip off the domain dot, if necessary
-    if (!host.IsEmpty() && host.First() == '.') host.Cut(0, 1);
-
-    host.InsertLiteral("http://", 0);
-
-    nsCOMPtr<nsIURI> uri;
-    NS_NewURI(getter_AddRefs(uri), host);
-
-    if (uri)
-      mPermissionService->SetAccess(uri, nsICookiePermission::ACCESS_DENY);
-  }
-
   if (cookie) {
     // Everything's done. Notify observers.
     NotifyChanged(cookie, u"deleted");
@@ -2580,7 +2567,7 @@ nsresult nsCookieService::Remove(const nsACString& aHost,
 
 NS_IMETHODIMP
 nsCookieService::Remove(const nsACString& aHost, const nsACString& aName,
-                        const nsACString& aPath, bool aBlocked,
+                        const nsACString& aPath,
                         JS::HandleValue aOriginAttributes, JSContext* aCx) {
   OriginAttributes attrs;
 
@@ -2588,18 +2575,18 @@ nsCookieService::Remove(const nsACString& aHost, const nsACString& aName,
     return NS_ERROR_INVALID_ARG;
   }
 
-  return RemoveNative(aHost, aName, aPath, aBlocked, &attrs);
+  return RemoveNative(aHost, aName, aPath, &attrs);
 }
 
 NS_IMETHODIMP_(nsresult)
 nsCookieService::RemoveNative(const nsACString& aHost, const nsACString& aName,
-                              const nsACString& aPath, bool aBlocked,
+                              const nsACString& aPath,
                               OriginAttributes* aOriginAttributes) {
   if (NS_WARN_IF(!aOriginAttributes)) {
     return NS_ERROR_FAILURE;
   }
 
-  nsresult rv = Remove(aHost, *aOriginAttributes, aName, aPath, aBlocked);
+  nsresult rv = Remove(aHost, *aOriginAttributes, aName, aPath);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }
@@ -2948,23 +2935,25 @@ bool nsCookieService::DomainMatches(nsCookie* aCookie,
 }
 
 bool nsCookieService::PathMatches(nsCookie* aCookie, const nsACString& aPath) {
+  nsCString cookiePath(aCookie->GetFilePath());
+
   // if our cookie path is empty we can't really perform our prefix check, and
   // also we can't check the last character of the cookie path, so we would
   // never return a successful match.
-  if (aCookie->Path().IsEmpty()) return false;
+  if (cookiePath.IsEmpty()) return false;
 
   // if the cookie path and the request path are identical, they match.
-  if (aCookie->Path().Equals(aPath)) return true;
+  if (cookiePath.Equals(aPath)) return true;
 
   // if the cookie path is a prefix of the request path, and the last character
   // of the cookie path is %x2F ("/"), they match.
-  bool isPrefix = StringBeginsWith(aPath, aCookie->Path());
-  if (isPrefix && aCookie->Path().Last() == '/') return true;
+  bool isPrefix = StringBeginsWith(aPath, cookiePath);
+  if (isPrefix && cookiePath.Last() == '/') return true;
 
   // if the cookie path is a prefix of the request path, and the first character
   // of the request path that is not included in the cookie path is a %x2F ("/")
   // character, they match.
-  uint32_t cookiePathLen = aCookie->Path().Length();
+  uint32_t cookiePathLen = cookiePath.Length();
   if (isPrefix && aPath[cookiePathLen] == '/') return true;
 
   return false;
@@ -2999,7 +2988,7 @@ void nsCookieService::GetCookiesForURI(
   nsresult rv =
       GetBaseDomain(mTLDService, aHostURI, baseDomain, requireHostMatch);
   if (NS_SUCCEEDED(rv)) rv = aHostURI->GetAsciiHost(hostFromURI);
-  if (NS_SUCCEEDED(rv)) rv = aHostURI->GetPathQueryRef(pathFromURI);
+  if (NS_SUCCEEDED(rv)) rv = aHostURI->GetFilePath(pathFromURI);
   if (NS_FAILED(rv)) {
     COOKIE_LOGFAILURE(GET_COOKIE, aHostURI, VoidCString(),
                       "invalid host/path from URI");
@@ -3948,7 +3937,7 @@ nsresult nsCookieService::GetBaseDomainFromHost(
 // components are lower-cased, and UTF-8 components are normalized per
 // RFC 3454 and converted to ACE.
 nsresult nsCookieService::NormalizeHost(nsCString& aHost) {
-  if (!IsASCII(aHost)) {
+  if (!IsAscii(aHost)) {
     nsAutoCString host;
     nsresult rv = mIDNService->ConvertUTF8toACE(aHost, host);
     if (NS_FAILED(rv)) return rv;
@@ -4876,7 +4865,7 @@ bool nsCookieService::FindSecureCookie(const nsCookieKey& aKey,
       // aren't "/", then this situation needs to compare paths to
       // ensure only that a newly-created non-secure cookie does not
       // overlay an existing secure cookie.
-      if (PathMatches(cookie, aCookie->Path())) {
+      if (PathMatches(cookie, aCookie->GetFilePath())) {
         return true;
       }
     }

@@ -825,6 +825,21 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "-moz-column-span": {
+    "isInherited": false,
+    "subproperties": [
+      "column-span"
+    ],
+    "supports": [],
+    "values": [
+      "all",
+      "inherit",
+      "initial",
+      "none",
+      "revert",
+      "unset"
+    ]
+  },
   "-moz-column-width": {
     "isInherited": false,
     "subproperties": [
@@ -5669,6 +5684,21 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "column-span": {
+    "isInherited": false,
+    "subproperties": [
+      "column-span"
+    ],
+    "supports": [],
+    "values": [
+      "all",
+      "inherit",
+      "initial",
+      "none",
+      "revert",
+      "unset"
+    ]
+  },
   "column-width": {
     "isInherited": false,
     "subproperties": [
@@ -8271,6 +8301,32 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "offset": {
+    "isInherited": false,
+    "subproperties": [
+      "offset-path",
+      "offset-distance",
+      "offset-rotate",
+      "offset-anchor"
+    ],
+    "supports": [],
+    "values": [
+      "auto",
+      "bottom",
+      "center",
+      "inherit",
+      "initial",
+      "left",
+      "none",
+      "path",
+      "ray",
+      "reverse",
+      "revert",
+      "right",
+      "top",
+      "unset"
+    ]
+  },
   "offset-anchor": {
     "isInherited": false,
     "subproperties": [
@@ -8314,6 +8370,7 @@ exports.CSS_PROPERTIES = {
       "initial",
       "none",
       "path",
+      "ray",
       "revert",
       "unset"
     ]
@@ -10944,6 +11001,10 @@ exports.PREFERENCES = [
   [
     "overscroll-behavior",
     "layout.css.overscroll-behavior.enabled"
+  ],
+  [
+    "offset",
+    "layout.css.motion-path.enabled"
   ],
   [
     "scroll-margin",

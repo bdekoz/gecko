@@ -818,9 +818,15 @@ GeolocationPermissionPrompt.prototype = {
       return;
     }
     gBrowser.updateBrowserSharing(this.browser, { geo: state });
+
+    let devicePermOrigins = this.browser.getDevicePermissionOrigins("geo");
     if (!state) {
+      devicePermOrigins.delete(this.principal.origin);
       return;
     }
+    devicePermOrigins.add(this.principal.origin);
+
+    // Update last access timestamp
     let host;
     try {
       host = this.browser.currentURI.host;
@@ -1062,7 +1068,7 @@ function MIDIPermissionPrompt(request) {
   let types = request.types.QueryInterface(Ci.nsIArray);
   let perm = types.queryElementAt(0, Ci.nsIContentPermissionType);
   this.isSysexPerm =
-    perm.options.length > 0 &&
+    !!perm.options.length &&
     perm.options.queryElementAt(0, Ci.nsISupportsString) == "sysex";
   this.permName = "midi";
   if (this.isSysexPerm) {

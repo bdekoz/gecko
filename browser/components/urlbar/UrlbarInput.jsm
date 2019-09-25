@@ -206,6 +206,9 @@ class UrlbarInput {
 
     this.dropmarker.addEventListener("mousedown", this);
 
+    this.window.addEventListener("mousedown", this);
+    this.textbox.addEventListener("mousedown", this);
+
     // This is used to detect commands launched from the panel, to avoid
     // recording abandonment events when the command causes a blur event.
     this.view.panel.addEventListener("command", this, true);
@@ -213,7 +216,7 @@ class UrlbarInput {
     this._copyCutController = new CopyCutController(this);
     this.inputField.controllers.insertControllerAt(0, this._copyCutController);
 
-    this.initLayoutBreakout();
+    this.updateLayoutBreakout();
 
     this._initPasteAndGo();
 
@@ -237,9 +240,11 @@ class UrlbarInput {
       this.removeEventListener(name, this);
     }
     this.dropmarker.removeEventListener("mousedown", this);
+    this.window.removeEventListener("mousedown", this);
+    this.textbox.removeEventListener("mousedown", this);
 
     this.view.panel.remove();
-    this.endLayoutBreakout(true);
+    this.endLayoutExtend(true);
 
     // When uninit is called due to exiting the browser's customize mode,
     // this.inputField.controllers is not the original list of controllers, and
@@ -449,7 +454,7 @@ class UrlbarInput {
 
     this.controller.engagementEvent.record(event, {
       numChars,
-      selIndex: this.view.selectedIndex,
+      selIndex: this.view.selectedRowIndex,
       selType,
     });
 
@@ -490,13 +495,14 @@ class UrlbarInput {
    * @param {Event} event The event that picked the result.
    */
   pickResult(result, event) {
+    let originalUntrimmedValue = this.untrimmedValue;
     let isCanonized = this.setValueFromResult(result, event);
     let where = this._whereToOpen(event);
     let openParams = {
       allowInheritPrincipal: false,
     };
 
-    let selIndex = this.view.selectedIndex;
+    let selIndex = this.view.selectedRowIndex;
     if (!result.payload.keywordOffer) {
       this.view.close();
     }
@@ -517,6 +523,34 @@ class UrlbarInput {
     openParams.postData = postData;
 
     switch (result.type) {
+      case UrlbarUtils.RESULT_TYPE.URL: {
+        // Bug 1578856: both the provider and the docshell run heuristics to
+        // decide how to handle a non-url string, either fixing it to a url, or
+        // searching for it.
+        // Some preferences can control the docshell behavior, for example
+        // if dns_first_for_single_words is true, the docshell looks up the word
+        // against the dns server, and either loads it as an url or searches for
+        // it, depending on the lookup result. The provider instead will always
+        // return a fixed url in this case, because URIFixup is synchronous and
+        // can't do a synchronous dns lookup. A possible long term solution
+        // would involve sharing the docshell logic with the provider, along
+        // with the dns lookup.
+        // For now, in this specific case, we'll override the result's url
+        // with the input value, and let it pass through to _loadURL(), and
+        // finally to the docshell.
+        // This also means that in some cases the heuristic result will show a
+        // Visit entry, but the docshell will instead execute a search. It's a
+        // rare case anyway, most likely to happen for enterprises customizing
+        // the urifixup prefs.
+        if (
+          result.heuristic &&
+          UrlbarPrefs.get("browser.fixup.dns_first_for_single_words") &&
+          UrlbarUtils.looksLikeSingleWordHost(originalUntrimmedValue)
+        ) {
+          url = originalUntrimmedValue;
+        }
+        break;
+      }
       case UrlbarUtils.RESULT_TYPE.KEYWORD: {
         // If this result comes from a bookmark keyword, let it inherit the
         // current document's principal, otherwise bookmarklets would break.
@@ -573,6 +607,37 @@ class UrlbarInput {
           this.startQuery();
           return;
         }
+
+        if (
+          result.heuristic &&
+          UrlbarUtils.looksLikeSingleWordHost(originalUntrimmedValue)
+        ) {
+          // The docshell when fixes a single word to a search, also checks the
+          // dns and prompts the user whether they wanted to rather visit that
+          // as a host. On a positive answer, it adds to the domains whitelist
+          // that we use to make decisions. Because here we are directly asking
+          // for a search, bypassing the docshell, we must do it here.
+          // See URIFixupChild.jsm and keyword-uri-fixup.
+          let flags =
+            Ci.nsIURIFixup.FIXUP_FLAG_FIX_SCHEME_TYPOS |
+            Ci.nsIURIFixup.FIXUP_FLAG_ALLOW_KEYWORD_LOOKUP;
+          // Don't interrupt the load action in case of errors.
+          try {
+            let fixupInfo = Services.uriFixup.getFixupURIInfo(
+              originalUntrimmedValue.trim(),
+              flags
+            );
+            this.window.gKeywordURIFixup({
+              target: this.window.gBrowser.selectedBrowser,
+              data: fixupInfo,
+            });
+          } catch (ex) {
+            Cu.reportError(
+              `An error occured while trying to fixup "${originalUntrimmedValue.trim()}": ${ex}`
+            );
+          }
+        }
+
         const actionDetails = {
           isSuggestion: !!result.payload.suggestion,
           alias: result.payload.keyword,
@@ -829,7 +894,7 @@ class UrlbarInput {
    */
   removeHiddenFocus() {
     this.textbox.classList.remove("hidden-focus");
-    this.startLayoutBreakout();
+    this.startLayoutExtend();
   }
 
   // Getters and Setters below.
@@ -839,7 +904,7 @@ class UrlbarInput {
   }
 
   get focused() {
-    return this.getAttribute("focused") == "true";
+    return this.document.activeElement == this.inputField;
   }
 
   get goButton() {
@@ -858,13 +923,9 @@ class UrlbarInput {
     return this._setValue(val, true);
   }
 
-  get openViewOnFocus() {
-    return this._openViewOnFocus;
-  }
-
   get openViewOnFocusForCurrentTab() {
     return (
-      this.openViewOnFocus &&
+      this._openViewOnFocus &&
       !["about:newtab", "about:home"].includes(
         this.window.gBrowser.currentURI.spec
       ) &&
@@ -872,17 +933,15 @@ class UrlbarInput {
     );
   }
 
-  async initLayoutBreakout() {
+  async updateLayoutBreakout() {
     if (!this.megabar) {
       return;
     }
-    this.removeAttribute("breakout");
     await this._updateLayoutBreakoutDimensions();
-    this.setAttribute("breakout", "true");
-    this.startLayoutBreakout();
+    this.startLayoutExtend();
   }
 
-  async startLayoutBreakout() {
+  startLayoutExtend() {
     if (
       !this.hasAttribute("breakout") ||
       this.hasAttribute("breakout-extend") ||
@@ -893,17 +952,20 @@ class UrlbarInput {
     ) {
       return;
     }
-    await this._updateLayoutBreakoutDimensions();
-
     this.setAttribute("breakout-extend", "true");
 
-    let customizationTarget = this.textbox.closest(".customization-target");
-    if (customizationTarget) {
-      customizationTarget.setAttribute("urlbar-breakout-extend", "true");
+    // Enable the animation only after the first extend call to ensure it
+    // doesn't run when opening a new window.
+    if (!this.hasAttribute("breakout-extend-animate")) {
+      this.window.promiseDocumentFlushed(() => {
+        this.window.requestAnimationFrame(() => {
+          this.setAttribute("breakout-extend-animate", "true");
+        });
+      });
     }
   }
 
-  endLayoutBreakout(force) {
+  endLayoutExtend(force) {
     if (
       !this.hasAttribute("breakout-extend") ||
       (!force &&
@@ -913,11 +975,6 @@ class UrlbarInput {
       return;
     }
     this.removeAttribute("breakout-extend");
-
-    let customizationTarget = this.textbox.closest(".customization-target");
-    if (customizationTarget) {
-      customizationTarget.removeAttribute("urlbar-breakout-extend");
-    }
   }
 
   setPageProxyState(state) {
@@ -929,18 +986,37 @@ class UrlbarInput {
   // Private methods below.
 
   async _updateLayoutBreakoutDimensions() {
+    // When this method gets called a second time before the first call
+    // finishes, we need to disregard the first one.
+    let updateKey = {};
+    this._layoutBreakoutUpdateKey = updateKey;
+
+    this.removeAttribute("breakout");
+    this.textbox.parentNode.removeAttribute("breakout");
+
     await this.window.promiseDocumentFlushed(() => {});
     await new Promise(resolve => {
       this.window.requestAnimationFrame(() => {
-        if (!this.hasAttribute("breakout")) {
-          let inputHeight = px(getBoundsWithoutFlushing(this.textbox).height);
-          this.textbox.style.setProperty("--urlbar-height", inputHeight);
-          this.textbox.parentNode.style.minHeight = inputHeight;
+        if (this._layoutBreakoutUpdateKey != updateKey) {
+          return;
         }
+
+        this.textbox.parentNode.style.setProperty(
+          "--urlbar-container-height",
+          px(getBoundsWithoutFlushing(this.textbox.parentNode).height)
+        );
+        this.textbox.style.setProperty(
+          "--urlbar-height",
+          px(getBoundsWithoutFlushing(this.textbox).height)
+        );
         this.textbox.style.setProperty(
           "--urlbar-toolbar-height",
           px(getBoundsWithoutFlushing(this.textbox.closest("toolbar")).height)
         );
+
+        this.setAttribute("breakout", "true");
+        this.textbox.parentNode.setAttribute("breakout", "true");
+
         resolve();
       });
     });
@@ -1487,6 +1563,10 @@ class UrlbarInput {
     });
 
     contextMenu.addEventListener("popupshowing", () => {
+      // Close the results pane when the input field contextual menu is open,
+      // because paste and go doesn't want a result selection.
+      this.view.close();
+
       let controller = this.document.commandDispatcher.getControllerForCommand(
         "cmd_paste"
       );
@@ -1553,7 +1633,7 @@ class UrlbarInput {
     });
 
     this.removeAttribute("focused");
-    this.endLayoutBreakout();
+    this.endLayoutExtend();
 
     this.formatValue();
     this._resetSearchState();
@@ -1603,7 +1683,7 @@ class UrlbarInput {
 
   _on_focus(event) {
     this.setAttribute("focused", "true");
-    this.startLayoutBreakout();
+    this.startLayoutExtend();
 
     this._updateUrlTooltip();
     this.formatValue();
@@ -1619,37 +1699,53 @@ class UrlbarInput {
   }
 
   _on_mousedown(event) {
-    if (event.currentTarget == this.inputField) {
-      this._preventClickSelectsAll = this.focused;
+    switch (event.currentTarget) {
+      case this.inputField:
+        this.startLayoutExtend();
+        this._preventClickSelectsAll = this.focused;
 
-      // The rest of this handler only cares about left clicks.
-      if (event.button != 0) {
-        return;
-      }
+        // The rest of this case only cares about left clicks.
+        if (event.button != 0) {
+          break;
+        }
 
-      if (event.detail == 2 && UrlbarPrefs.get("doubleClickSelectsAll")) {
-        this.editor.selectAll();
-        event.preventDefault();
-      } else if (this.openViewOnFocusForCurrentTab && !this.view.isOpen) {
-        this.startQuery({
-          allowAutofill: false,
-          event,
-        });
-      }
-      return;
-    }
+        if (event.detail == 2 && UrlbarPrefs.get("doubleClickSelectsAll")) {
+          this.editor.selectAll();
+          event.preventDefault();
+        } else if (this.openViewOnFocusForCurrentTab && !this.view.isOpen) {
+          this.startQuery({
+            allowAutofill: false,
+            event,
+          });
+        }
+        break;
+      case this.dropmarker:
+        if (event.button != 0) {
+          break;
+        }
 
-    if (event.currentTarget == this.dropmarker && event.button == 0) {
-      if (this.view.isOpen) {
-        this.view.close();
-      } else {
-        this.focus();
-        this.startQuery({
-          allowAutofill: false,
-          event,
-        });
-        this._maybeSelectAll();
-      }
+        if (this.view.isOpen) {
+          this.view.close();
+        } else {
+          this.focus();
+          this.startQuery({
+            allowAutofill: false,
+            event,
+          });
+          this._maybeSelectAll();
+        }
+        break;
+      case this.textbox:
+        this._mousedownOnUrlbarDescendant = true;
+        break;
+      case this.window:
+        // We collapse the Urlbar for any mousedowns outside of it.
+        if (this._mousedownOnUrlbarDescendant) {
+          this._mousedownOnUrlbarDescendant = false;
+          break;
+        }
+
+        this.endLayoutExtend(true);
     }
   }
 
@@ -1948,7 +2044,7 @@ function getDroppableData(event) {
   }
   // The URL bar automatically handles inputs with newline characters,
   // so we can get away with treating text/x-moz-url flavours as text/plain.
-  if (links.length > 0 && links[0].url) {
+  if (links.length && links[0].url) {
     event.preventDefault();
     let href = links[0].url;
     if (UrlbarUtils.stripUnsafeProtocolOnPaste(href) != href) {

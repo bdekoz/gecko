@@ -76,6 +76,7 @@
 #  include "frontend/BinASTParser.h"
 #endif  // defined(JS_BUILD_BINAST)
 #include "frontend/ModuleSharedContext.h"
+#include "frontend/ParseInfo.h"
 #include "frontend/Parser.h"
 #include "gc/PublicIterators.h"
 #include "jit/arm/Simulator-arm.h"
@@ -470,6 +471,7 @@ struct MOZ_STACK_CLASS EnvironmentPreparer
 };
 
 // Shell state set once at startup.
+static bool enableDeferredMode = false;
 static bool enableCodeCoverage = false;
 static bool enableDisassemblyDumps = false;
 static bool offthreadCompilation = false;
@@ -486,6 +488,9 @@ static bool enableWasmVerbose = false;
 static bool enableTestWasmAwaitTier2 = false;
 static bool enableAsyncStacks = false;
 static bool enableStreams = false;
+static bool enableReadableByteStreams = false;
+static bool enableBYOBStreamReaders = false;
+static bool enableWritableStreams = false;
 static bool enableFields = false;
 static bool enableAwaitFix = false;
 #ifdef JS_GC_ZEAL
@@ -867,11 +872,9 @@ static MOZ_MUST_USE bool RunFile(JSContext* cx, const char* filename,
         .setNoScriptRval(true);
 
     if (compileMethod == CompileUtf8::DontInflate) {
-      fprintf(stderr, "(compiling '%s' as UTF-8 without inflating)\n",
-              filename);
-
       script = JS::CompileUtf8FileDontInflate(cx, options, file);
     } else {
+      fprintf(stderr, "(compiling '%s' after inflating to UTF-16)\n", filename);
       script = JS::CompileUtf8File(cx, options, file);
     }
 
@@ -949,9 +952,9 @@ static bool InitModuleLoader(JSContext* cx) {
   options.setIntroductionType("shell module loader");
   options.setFileAndLine("shell/ModuleLoader.js", 1);
   options.setSelfHostingMode(false);
-  options.setCanLazilyParse(false);
+  options.setForceFullParse();
   options.werrorOption = true;
-  options.strictOption = true;
+  options.setForceStrictMode();
 
   JS::SourceText<Utf8Unit> srcBuf;
   if (!srcBuf.init(cx, std::move(src), srcLen)) {
@@ -1406,8 +1409,8 @@ static MOZ_MUST_USE bool ReadEvalPrintLoop(JSContext* cx, FILE* in,
 }
 
 enum FileKind {
-  FileScript,
-  FileScriptUtf8,  // FileScript, but don't inflate to UTF-16 before parsing
+  FileScript,       // UTF-8, directly parsed as such
+  FileScriptUtf16,  // FileScript, but inflate to UTF-16 before parsing
   FileModule,
   FileBinAST
 };
@@ -1446,13 +1449,13 @@ static MOZ_MUST_USE bool Process(JSContext* cx, const char* filename,
     // It's not interactive - just execute it.
     switch (kind) {
       case FileScript:
-        if (!RunFile(cx, filename, file, CompileUtf8::InflateToUtf16,
+        if (!RunFile(cx, filename, file, CompileUtf8::DontInflate,
                      compileOnly)) {
           return false;
         }
         break;
-      case FileScriptUtf8:
-        if (!RunFile(cx, filename, file, CompileUtf8::DontInflate,
+      case FileScriptUtf16:
+        if (!RunFile(cx, filename, file, CompileUtf8::InflateToUtf16,
                      compileOnly)) {
           return false;
         }
@@ -1808,6 +1811,13 @@ static bool ParseCompileOptions(JSContext* cx, CompileOptions& options,
       return false;
     }
     options.setFile(fileNameBytes.get());
+  }
+
+  if (!JS_GetProperty(cx, opts, "skipFileNameValidation", &v)) {
+    return false;
+  }
+  if (!v.isUndefined()) {
+    options.setSkipFilenameValidation(ToBoolean(v));
   }
 
   if (!JS_GetProperty(cx, opts, "element", &v)) {
@@ -3799,8 +3809,12 @@ static void SetStandardRealmOptions(JS::RealmOptions& options) {
   options.creationOptions()
       .setSharedMemoryAndAtomicsEnabled(enableSharedMemory)
       .setStreamsEnabled(enableStreams)
+      .setReadableByteStreamsEnabled(enableReadableByteStreams)
+      .setBYOBStreamReadersEnabled(enableBYOBStreamReaders)
+      .setWritableStreamsEnabled(enableWritableStreams)
       .setFieldsEnabled(enableFields)
       .setAwaitFixEnabled(enableAwaitFix);
+  options.behaviors().setDeferredParserAlloc(enableDeferredMode);
 }
 
 static MOZ_MUST_USE bool CheckRealmOptions(JSContext* cx,
@@ -5245,7 +5259,7 @@ static bool Parse(JSContext* cx, unsigned argc, Value* vp) {
   options.setIntroductionType("js shell parse").setFileAndLine("<string>", 1);
   if (goal == frontend::ParseGoal::Module) {
     // See frontend::CompileModule.
-    options.maybeMakeStrictMode(true);
+    options.setForceStrictMode();
     options.allowHTMLComments = false;
   }
 
@@ -6233,11 +6247,25 @@ static bool NewGlobal(JSContext* cx, unsigned argc, Value* vp) {
                            : ShellGlobalKind::GlobalObject;
     }
 
+    if (!JS_GetProperty(cx, opts, "enableWritableStreams", &v)) {
+      return false;
+    }
+    if (v.isBoolean()) {
+      creationOptions.setWritableStreamsEnabled(v.toBoolean());
+    }
+
     if (!JS_GetProperty(cx, opts, "systemPrincipal", &v)) {
       return false;
     }
     if (v.isBoolean()) {
       principals.reset(&ShellPrincipals::fullyTrusted);
+    }
+
+    if (!JS_GetProperty(cx, opts, "deferredParserAlloc", &v)) {
+      return false;
+    }
+    if (v.isBoolean()) {
+      behaviors.setDeferredParserAlloc(v.toBoolean());
     }
 
     if (!JS_GetProperty(cx, opts, "principal", &v)) {
@@ -8471,6 +8499,7 @@ static const JSFunctionSpecWithHelp shell_functions[] = {
 "      isRunOnce: use the isRunOnce compiler option (default: false)\n"
 "      noScriptRval: use the no-script-rval compiler option (default: false)\n"
 "      fileName: filename for error messages and debug info\n"
+"      skipFileNameValidation: skip the filename-validation callback\n"
 "      lineNumber: starting line number for error messages and debug info\n"
 "      columnNumber: starting column number for error messages and debug info\n"
 "      global: global in which to execute the code\n"
@@ -10100,7 +10129,7 @@ static MOZ_MUST_USE bool ProcessArgs(JSContext* cx, OptionParser* op) {
   }
 
   MultiStringRange filePaths = op->getMultiStringOption('f');
-  MultiStringRange utf8FilePaths = op->getMultiStringOption('u');
+  MultiStringRange utf16FilePaths = op->getMultiStringOption('u');
   MultiStringRange codeChunks = op->getMultiStringOption('e');
   MultiStringRange modulePaths = op->getMultiStringOption('m');
   MultiStringRange binASTPaths(nullptr, nullptr);
@@ -10108,7 +10137,7 @@ static MOZ_MUST_USE bool ProcessArgs(JSContext* cx, OptionParser* op) {
   binASTPaths = op->getMultiStringOption('B');
 #endif  // JS_BUILD_BINAST
 
-  if (filePaths.empty() && utf8FilePaths.empty() && codeChunks.empty() &&
+  if (filePaths.empty() && utf16FilePaths.empty() && codeChunks.empty() &&
       modulePaths.empty() && binASTPaths.empty() &&
       !op->getStringArg("script")) {
     return Process(cx, nullptr, true, FileScript); /* Interactive. */
@@ -10138,10 +10167,11 @@ static MOZ_MUST_USE bool ProcessArgs(JSContext* cx, OptionParser* op) {
     return false;
   }
 
-  while (!filePaths.empty() || !utf8FilePaths.empty() || !codeChunks.empty() ||
+  while (!filePaths.empty() || !utf16FilePaths.empty() || !codeChunks.empty() ||
          !modulePaths.empty() || !binASTPaths.empty()) {
     size_t fpArgno = filePaths.empty() ? SIZE_MAX : filePaths.argno();
-    size_t ufpArgno = utf8FilePaths.empty() ? SIZE_MAX : utf8FilePaths.argno();
+    size_t ufpArgno =
+        utf16FilePaths.empty() ? SIZE_MAX : utf16FilePaths.argno();
     size_t ccArgno = codeChunks.empty() ? SIZE_MAX : codeChunks.argno();
     size_t mpArgno = modulePaths.empty() ? SIZE_MAX : modulePaths.argno();
     size_t baArgno = binASTPaths.empty() ? SIZE_MAX : binASTPaths.argno();
@@ -10159,12 +10189,12 @@ static MOZ_MUST_USE bool ProcessArgs(JSContext* cx, OptionParser* op) {
 
     if (ufpArgno < fpArgno && ufpArgno < ccArgno && ufpArgno < mpArgno &&
         ufpArgno < baArgno) {
-      char* path = utf8FilePaths.front();
-      if (!Process(cx, path, false, FileScriptUtf8)) {
+      char* path = utf16FilePaths.front();
+      if (!Process(cx, path, false, FileScriptUtf16)) {
         return false;
       }
 
-      utf8FilePaths.popFront();
+      utf16FilePaths.popFront();
       continue;
     }
 
@@ -10273,6 +10303,9 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
   enableTestWasmAwaitTier2 = op.getBoolOption("test-wasm-await-tier2");
   enableAsyncStacks = !op.getBoolOption("no-async-stacks");
   enableStreams = !op.getBoolOption("no-streams");
+  enableReadableByteStreams = op.getBoolOption("enable-readable-byte-streams");
+  enableBYOBStreamReaders = op.getBoolOption("enable-byob-stream-readers");
+  enableWritableStreams = op.getBoolOption("enable-writable-streams");
   enableFields = !op.getBoolOption("disable-experimental-fields");
   enableAwaitFix = op.getBoolOption("enable-experimental-await-fix");
 
@@ -10963,11 +10996,13 @@ int main(int argc, char** argv, char** envp) {
   op.setHelpWidth(80);
   op.setVersion(JS_GetImplementationVersion());
 
-  if (!op.addMultiStringOption('f', "file", "PATH", "File path to run") ||
+  if (!op.addMultiStringOption(
+          'f', "file", "PATH",
+          "File path to run, parsing file contents as UTF-8") ||
       !op.addMultiStringOption(
-          'u', "utf8-file", "PATH",
-          "File path to run, directly parsing file contents as UTF-8 "
-          "without first inflating to UTF-16") ||
+          'u', "utf16-file", "PATH",
+          "File path to run, inflating the file's UTF-8 contents to UTF-16 and "
+          "then parsing that") ||
       !op.addMultiStringOption('m', "module", "PATH", "Module path to run") ||
 #if defined(JS_BUILD_BINAST)
       !op.addMultiStringOption('B', "binast", "PATH", "BinAST path to run") ||
@@ -10987,6 +11022,8 @@ int main(int argc, char** argv, char** envp) {
                         "Print sub-ms runtime for each file that's run") ||
       !op.addBoolOption('\0', "code-coverage",
                         "Enable code coverage instrumentation.") ||
+      !op.addBoolOption('\0', "parser-deferred-alloc",
+                        "Defer allocation of GC objects until after parser") ||
 #ifdef DEBUG
       !op.addBoolOption('O', "print-alloc",
                         "Print the number of allocations at exit") ||
@@ -11032,6 +11069,14 @@ int main(int argc, char** argv, char** envp) {
       !op.addBoolOption('\0', "enable-streams",
                         "Enable WHATWG Streams (default)") ||
       !op.addBoolOption('\0', "no-streams", "Disable WHATWG Streams") ||
+      !op.addBoolOption('\0', "enable-readable-byte-streams",
+                        "Enable support for WHATWG ReadableStreams of type "
+                        "'bytes'") ||
+      !op.addBoolOption('\0', "enable-byob-stream-readers",
+                        "Enable support for getting BYOB readers for WHATWG "
+                        "ReadableStreams of type \"bytes\"") ||
+      !op.addBoolOption('\0', "enable-writable-streams",
+                        "Enable support for WHATWG WritableStreams") ||
       !op.addBoolOption('\0', "disable-experimental-fields",
                         "Disable public fields in classes") ||
       !op.addBoolOption('\0', "enable-experimental-await-fix",
@@ -11287,6 +11332,9 @@ int main(int argc, char** argv, char** envp) {
   if (enableCodeCoverage) {
     coverage::EnableLCov();
   }
+
+  enableDeferredMode = op.getBoolOption("parser-deferred-alloc") ||
+                       getenv("PARSER_DEFERRED_ALLOC") != nullptr;
 
 #ifdef JS_WITHOUT_NSPR
   if (!op.getMultiStringOption("dll").empty()) {

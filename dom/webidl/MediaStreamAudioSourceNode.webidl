@@ -14,13 +14,15 @@ dictionary MediaStreamAudioSourceOptions {
     required MediaStream mediaStream;
 };
 
-[Pref="dom.webaudio.enabled",
- Constructor(AudioContext context, MediaStreamAudioSourceOptions options)]
+[Pref="dom.webaudio.enabled"]
 interface MediaStreamAudioSourceNode : AudioNode {
+  [Throws]
+  constructor(AudioContext context, MediaStreamAudioSourceOptions options);
+
   [BinaryName="GetMediaStream"]
   readonly attribute MediaStream mediaStream;
 };
 
 // Mozilla extensions
-MediaStreamAudioSourceNode implements AudioNodePassThrough;
+MediaStreamAudioSourceNode includes AudioNodePassThrough;
 

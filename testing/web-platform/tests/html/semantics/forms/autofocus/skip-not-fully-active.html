@@ -14,5 +14,5 @@ promise_test(async () => {
   await waitForLoad(window);
   assert_not_equals(document.activeElement, iframe);
   assert_equals(iframeDocument.activeElement, iframeDocument.body);
-}, 'Autofocus element in not-fully-active document should be skipped.');
+}, 'Autofocus element in not-fully-active document should be skipped while flusing.');
 </script>

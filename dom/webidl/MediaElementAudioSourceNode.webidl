@@ -14,12 +14,14 @@ dictionary MediaElementAudioSourceOptions {
     required HTMLMediaElement mediaElement;
 };
 
-[Pref="dom.webaudio.enabled",
- Constructor(AudioContext context, MediaElementAudioSourceOptions options)]
+[Pref="dom.webaudio.enabled"]
 interface MediaElementAudioSourceNode : AudioNode {
+  [Throws]
+  constructor(AudioContext context, MediaElementAudioSourceOptions options);
+
   readonly attribute HTMLMediaElement mediaElement;
 };
 
 // Mozilla extensions
-MediaElementAudioSourceNode implements AudioNodePassThrough;
+MediaElementAudioSourceNode includes AudioNodePassThrough;
 

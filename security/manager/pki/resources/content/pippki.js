@@ -31,15 +31,13 @@ function viewCertHelper(parent, cert) {
   }
 
   if (Services.prefs.getBoolPref("security.aboutcertificate.enabled")) {
-    let ownerGlobal = window.docShell.chromeEventHandler.ownerGlobal;
+    let rootWindow = window.docShell.rootTreeItem.domWindow;
     let derb64 = encodeURIComponent(cert.getBase64DERString());
     let url = `about:certificate?cert=${derb64}`;
-    ownerGlobal.openTrustedLinkIn(url, "tab", {
-      triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
-    });
+    rootWindow.openTrustedLinkIn(url, "tab");
   } else {
     Services.ww.openWindow(
-      parent,
+      parent && parent.docShell.rootTreeItem.domWindow,
       "chrome://pippki/content/certViewer.xul",
       "_blank",
       "centerscreen,chrome",
@@ -49,13 +47,10 @@ function viewCertHelper(parent, cert) {
 }
 
 function getPKCS7String(certArray) {
-  let certList = Cc["@mozilla.org/security/x509certlist;1"].createInstance(
-    Ci.nsIX509CertList
+  let certdb = Cc["@mozilla.org/security/x509certdb;1"].getService(
+    Ci.nsIX509CertDB
   );
-  for (let cert of certArray) {
-    certList.addCert(cert);
-  }
-  return certList.asPKCS7Blob();
+  return certdb.asPKCS7Blob(certArray);
 }
 
 function getPEMString(cert) {

@@ -6,6 +6,7 @@
 
 import LockwiseCard from "./lockwise-card.js";
 import MonitorCard from "./monitor-card.js";
+import ProxyCard from "./proxy-card.js";
 
 // We need to send the close telemetry before unload while we still have a connection to RPM.
 window.addEventListener("beforeunload", () => {
@@ -14,7 +15,7 @@ window.addEventListener("beforeunload", () => {
 
 document.addEventListener("DOMContentLoaded", e => {
   let todayInMs = Date.now();
-  let weekAgoInMs = todayInMs - 7 * 24 * 60 * 60 * 1000;
+  let weekAgoInMs = todayInMs - 6 * 24 * 60 * 60 * 1000;
   RPMSendAsyncMessage("FetchContentBlockingEvents", {
     from: weekAgoInMs,
     to: todayInMs,
@@ -40,17 +41,17 @@ document.addEventListener("DOMContentLoaded", e => {
   if (cbCategory == "custom") {
     protectionDetails.setAttribute(
       "data-l10n-id",
-      "protection-header-details-custom"
+      "protection-report-header-details-custom"
     );
   } else if (cbCategory == "strict") {
     protectionDetails.setAttribute(
       "data-l10n-id",
-      "protection-header-details-strict"
+      "protection-report-header-details-strict"
     );
   } else {
     protectionDetails.setAttribute(
       "data-l10n-id",
-      "protection-header-details-standard"
+      "protection-report-header-details-standard"
     );
   }
 
@@ -120,12 +121,18 @@ document.addEventListener("DOMContentLoaded", e => {
         count.id = "count" + i;
         count.setAttribute("role", "cell");
         count.textContent = content.total;
+        setTimeout(() => {
+          count.classList.add("animate");
+        }, 400);
         bar.appendChild(count);
         ariaOwnsString = count.id;
         currentColumnCount += 1;
         let barHeight = (content.total / largest) * 100;
         weekCount += content.total;
-        bar.style.height = `${barHeight}%`;
+        // Add a short timeout to allow the elements to be added to the dom before triggering an animation.
+        setTimeout(() => {
+          bar.style.height = `${barHeight}%`;
+        }, 20);
         for (let type of dataTypes) {
           if (content[type]) {
             let dataHeight = (content[type] / content.total) * 100;
@@ -308,6 +315,20 @@ document.addEventListener("DOMContentLoaded", e => {
   // For tests
   const monitorUI = document.querySelector(".monitor-card");
   monitorUI.dataset.enabled = monitorEnabled;
+
+  const proxyEnabled = RPMGetBoolPref(
+    "browser.contentblocking.report.proxy.enabled",
+    true
+  );
+
+  if (proxyEnabled) {
+    const proxyCard = new ProxyCard(document);
+    proxyCard.init();
+  }
+
+  // For tests
+  const proxyUI = document.querySelector(".proxy-card");
+  proxyUI.dataset.enabled = proxyEnabled;
 
   // Dispatch messages to retrieve data for the Lockwise & Monitor
   // cards.

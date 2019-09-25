@@ -155,7 +155,7 @@ ParserSharedBase::ParserSharedBase(JSContext* cx, ParseInfo& parserInfo,
           ),
       cx_(cx),
       alloc_(parserInfo.allocScope.alloc()),
-      compileInfo_(parserInfo),
+      parseInfo_(parserInfo),
       traceListHead_(nullptr),
       pc_(nullptr),
       usedNames_(parserInfo.usedNames),
@@ -439,7 +439,7 @@ template <class ParseHandler, typename Unit>
 typename ParseHandler::ListNodeType GeneralParser<ParseHandler, Unit>::parse() {
   MOZ_ASSERT(checkOptionsCalled_);
 
-  Directives directives(options().strictOption);
+  Directives directives(options().forceStrictMode());
   GlobalSharedContext globalsc(cx_, ScopeKind::Global, directives,
                                options().extraWarningsOption);
   SourceParseContext globalpc(this, &globalsc, /* newDirectives = */ nullptr);

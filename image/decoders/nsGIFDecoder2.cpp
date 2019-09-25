@@ -193,8 +193,8 @@ nsresult nsGIFDecoder2::BeginImageFrame(const IntRect& aFrameRect,
   }
 
   Maybe<SurfacePipe> pipe = SurfacePipeFactory::CreateSurfacePipe(
-      this, Size(), OutputSize(), aFrameRect, format, animParams, mTransform,
-      pipeFlags);
+      this, Size(), OutputSize(), aFrameRect, format, format, animParams,
+      mTransform, pipeFlags);
   mCurrentFrameIndex = mGIFStruct.images_decoded;
 
   if (!pipe) {
@@ -832,7 +832,7 @@ LexerTransition<nsGIFDecoder2::State> nsGIFDecoder2::FinishImageDescriptor(
   // If the transparent color index is greater than the number of colors in the
   // color table, we may need a higher color depth than |depth| would specify.
   // Our internal representation of the image will instead use |realDepth|,
-  // which is the smallest color depth that can accomodate the existing palette
+  // which is the smallest color depth that can accommodate the existing palette
   // *and* the transparent color index.
   uint16_t realDepth = depth;
   while (mGIFStruct.tpixel >= (1 << realDepth) && realDepth < 8) {

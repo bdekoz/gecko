@@ -14,11 +14,13 @@ dictionary IIRFilterOptions : AudioNodeOptions {
     required sequence<double> feedback;
 };
 
-[Pref="dom.webaudio.enabled",
-Constructor(BaseAudioContext context, IIRFilterOptions options)]
+[Pref="dom.webaudio.enabled"]
 interface IIRFilterNode : AudioNode {
+    [Throws]
+    constructor(BaseAudioContext context, IIRFilterOptions options);
+
     void getFrequencyResponse(Float32Array frequencyHz, Float32Array magResponse, Float32Array phaseResponse);
 };
 
 // Mozilla extension
-IIRFilterNode implements AudioNodePassThrough;
+IIRFilterNode includes AudioNodePassThrough;

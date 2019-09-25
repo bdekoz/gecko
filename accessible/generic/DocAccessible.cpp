@@ -39,7 +39,6 @@
 #include "nsFocusManager.h"
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/Assertions.h"
-#include "mozilla/EventStateManager.h"
 #include "mozilla/EventStates.h"
 #include "mozilla/HTMLEditor.h"
 #include "mozilla/PresShell.h"
@@ -48,6 +47,7 @@
 #include "mozilla/dom/DocumentType.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/MutationEventBinding.h"
+#include "mozilla/dom/UserActivation.h"
 #include "HTMLElementAccessibles.h"
 
 using namespace mozilla;
@@ -287,7 +287,7 @@ void DocAccessible::TakeFocus() const {
   // Focus the document.
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
   RefPtr<dom::Element> newFocus;
-  AutoHandlingUserInputStatePusher inputStatePusher(true);
+  dom::AutoHandlingUserInputStatePusher inputStatePusher(true);
   fm->MoveFocus(mDocumentNode->GetWindow(), nullptr,
                 nsFocusManager::MOVEFOCUS_ROOT, 0, getter_AddRefs(newFocus));
 }
@@ -1206,6 +1206,11 @@ Accessible* DocAccessible::GetAccessibleOrDescendant(nsINode* aNode) const {
   if (acc) return acc;
 
   acc = GetContainerAccessible(aNode);
+  if (acc == this && aNode == mContent) {
+    // The body node is the doc's content node.
+    return acc;
+  }
+
   if (acc) {
     uint32_t childCnt = acc->ChildCount();
     for (uint32_t idx = 0; idx < childCnt; idx++) {
@@ -1543,6 +1548,9 @@ void DocAccessible::DoInitialUpdate() {
 #endif
           browserChild->SendPDocAccessibleConstructor(ipcDoc, nullptr, 0,
                                                       childID, holder);
+#if !defined(XP_WIN)
+          ipcDoc->SendPDocAccessiblePlatformExtConstructor();
+#endif
         }
 
         if (IsRoot()) {
@@ -2316,7 +2324,7 @@ bool DocAccessible::MoveChild(Accessible* aChild, Accessible* aNewParent,
 
   if (curParent == aNewParent) {
     MOZ_ASSERT(aChild->IndexInParent() != aIdxInParent, "No move case");
-    curParent->MoveChild(aIdxInParent, aChild);
+    curParent->RelocateChild(aIdxInParent, aChild);
 
 #ifdef A11Y_LOG
     logging::TreeInfo("move child: parent tree after", logging::eVerbose,

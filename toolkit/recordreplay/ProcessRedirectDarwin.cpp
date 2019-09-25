@@ -2466,7 +2466,7 @@ static SystemRedirection gSystemRedirections[] = {
     {"GetEventDispatcherTarget", RR_ScalarRval},
     {"GetEventKind", RR_ScalarRval},
     {"HIThemeDrawButton",
-     RR_Compose<RR_WriteBufferFixedSize<4, sizeof(HIRect)>, RR_ScalarRval>,
+     RR_Compose<RR_WriteOptionalBufferFixedSize<4, sizeof(HIRect)>, RR_ScalarRval>,
      nullptr,
      MM_Compose<MM_BufferFixedSize<0, sizeof(HIRect)>,
                 MM_BufferFixedSize<1, sizeof(HIThemeButtonDrawInfo)>,
@@ -2489,7 +2489,7 @@ static SystemRedirection gSystemRedirections[] = {
                 MM_BufferFixedSize<1, sizeof(HIThemeMenuDrawInfo)>,
                 MM_UpdateCFTypeArg<2>>},
     {"HIThemeDrawMenuItem",
-     RR_Compose<RR_WriteBufferFixedSize<5, sizeof(HIRect)>, RR_ScalarRval>,
+     RR_Compose<RR_WriteOptionalBufferFixedSize<5, sizeof(HIRect)>, RR_ScalarRval>,
      nullptr,
      MM_Compose<MM_BufferFixedSize<0, sizeof(HIRect)>,
                 MM_BufferFixedSize<1, sizeof(HIRect)>,
@@ -2566,6 +2566,7 @@ static SystemRedirection gSystemRedirections[] = {
     {"SCDynamicStoreCreateRunLoopSource", RR_ScalarRval},
     {"SCDynamicStoreKeyCreateProxies", RR_ScalarRval},
     {"SCDynamicStoreSetNotificationKeys", RR_ScalarRval},
+    {"SecRandomCopyBytes", RR_SaveRvalHadErrorNegative<RR_WriteBuffer<2, 1>>},
     {"SendEventToEventTarget", RR_ScalarRval},
 
     // These are not public APIs, but other redirected functions may be aliases

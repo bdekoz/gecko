@@ -19,6 +19,8 @@ const {
   makeEventBreakpointMessage,
 } = require("devtools/server/actors/utils/event-breakpoints");
 
+const { logEvent } = require("devtools/server/actors/utils/logEvent");
+
 loader.lazyRequireGetter(
   this,
   "EnvironmentActor",
@@ -87,8 +89,7 @@ loader.lazyRequireGetter(
  *          - window: The global window object.
  *          - preNest: Function called before entering a nested event loop.
  *          - postNest: Function called after exiting a nested event loop.
- *          - makeDebugger: A function that takes no arguments and instantiates
- *            a Debugger that manages its globals on its own.
+ *          - dbg: a Debugger instance that manages its globals on its own.
  * @param aGlobal object [optional]
  *        An optional (for content debugging only) reference to the content
  *        window.
@@ -165,7 +166,7 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
 
   get dbg() {
     if (!this._dbg) {
-      this._dbg = this._parent.makeDebugger();
+      this._dbg = this._parent.dbg;
       this._dbg.uncaughtExceptionHook = this.uncaughtExceptionHook;
       this._dbg.onDebuggerStatement = this.onDebuggerStatement;
       this._dbg.onNewScript = this.onNewScript;
@@ -305,11 +306,6 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
     this.clearDebuggees();
     this.conn.removeActorPool(this._threadLifetimePool);
     this._threadLifetimePool = null;
-
-    if (!this._dbg) {
-      return;
-    }
-    this._dbg.disable();
     this._dbg = null;
   },
 
@@ -410,6 +406,12 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
     }
   },
 
+  toggleEventLogging(logEventBreakpoints) {
+    this._options.logEventBreakpoints = logEventBreakpoints;
+    this._updateEventLogging();
+    return this._options.logEventBreakpoints;
+  },
+
   _setBreakpointsOnAttach(breakpoints) {
     for (const { location, options } of Object.values(breakpoints)) {
       this.setBreakpoint(location, options);
@@ -424,7 +426,6 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
     const env = new HighlighterEnvironment();
     env.initFromTargetActor(this._parent);
     const highlighter = new PausedDebuggerOverlay(env, {
-      showOverlayStepButtons: this._options.showOverlayStepButtons,
       resume: () => this.onResume({ resumeLimit: null }),
       stepOver: () => this.onResume({ resumeLimit: { type: "next" } }),
     });
@@ -434,6 +435,7 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
 
   showOverlay() {
     if (
+      this._options.shouldShowOverlay &&
       this.isPaused() &&
       this._parent.on &&
       this._parent.window.document &&
@@ -541,6 +543,30 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
       this._debuggerNotificationObserver.addListener(
         this._eventBreakpointListener
       );
+    }
+
+    this._updateEventLogging();
+  },
+
+  _updateEventLogging() {
+    if (isReplaying && this._options.logEventBreakpoints) {
+      const logpointId = `logGroup-${Math.random()}`;
+      const ids = [...this._activeEventBreakpoints];
+      this.dbg.replaySetActiveEventBreakpoints(ids, (executionPoint, rv) => {
+        const { script, offset } = this.dbg.replayGetExecutionPointPosition(
+          executionPoint
+        );
+        const { lineNumber, columnNumber } = script.getOffsetLocation(offset);
+        const message = {
+          filename: script.url,
+          lineNumber,
+          columnNumber,
+          executionPoint,
+          arguments: rv,
+          logpointId,
+        };
+        this._parent._consoleActor.onConsoleAPICall(message);
+      });
     }
   },
 
@@ -715,6 +741,16 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
       return undefined;
     }
 
+    if (this._options.logEventBreakpoints) {
+      return logEvent({
+        threadActor: this,
+        frame,
+        level: "logPoint",
+        expression: `[_event]`,
+        bindings: { _event: frame.arguments[0] },
+      });
+    }
+
     return this._pauseAndRespond(frame, {
       type: "eventBreakpoint",
       breakpoint: eventBreakpoint,
@@ -861,7 +897,11 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
         });
 
         if (thread.dbg.replaying) {
-          const offsets = findStepOffsets(parentFrame, rewinding);
+          const offsets = findStepOffsets(
+            parentFrame,
+            rewinding,
+            /* requireStepStart */ false
+          );
           parentFrame.setReplayingOnStep(onStep, offsets);
         } else {
           parentFrame.onStep = onStep;
@@ -1607,7 +1647,6 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
         promote: () => this.threadObjectGrip(actor),
         isThreadLifetimePool: () =>
           actor.registeredPool !== this.threadLifetimePool,
-        getGlobalDebugObject: () => this.globalDebugObject,
       },
       this.conn
     );
@@ -1698,7 +1737,7 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
    *        The exception that was thrown in the debugger code.
    */
   uncaughtExceptionHook: function(exception) {
-    dumpn("Got an exception: " + exception.message + "\n" + exception.stack);
+    dump("Got an exception: " + exception.message + "\n" + exception.stack);
   },
 
   pauseForMutationBreakpoint: function(mutationType) {
@@ -1710,18 +1749,22 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
       throw new Error("Unexpected mutation breakpoint type");
     }
 
-    if (this.skipBreakpoints) {
-      return;
+    const frame = this.dbg.getNewestFrame();
+    if (!frame) {
+      return undefined;
     }
 
-    const frame = this.dbg.getNewestFrame();
-    if (frame) {
-      this._pauseAndRespond(frame, {
-        type: "mutationBreakpoint",
-        mutationType,
-        message: `DOM Mutation: '${mutationType}'`,
-      });
+    const location = this.sources.getFrameLocation(frame);
+
+    if (this.skipBreakpoints || this.sources.isBlackBoxed(location.sourceUrl)) {
+      return undefined;
     }
+
+    return this._pauseAndRespond(frame, {
+      type: "mutationBreakpoint",
+      mutationType,
+      message: `DOM Mutation: '${mutationType}'`,
+    });
   },
 
   /**
@@ -2058,6 +2101,7 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
     return {
       pauseOnExceptions: this._options.pauseOnExceptions,
       ignoreCaughtExceptions: this._options.ignoreCaughtExceptions,
+      logEventBreakpoints: this._options.logEventBreakpoints,
       skipBreakpoints: this.skipBreakpoints,
       breakpoints: this.breakpointActorMap.listKeys(),
     };

@@ -27,10 +27,8 @@ class InactivePropertyHelper {
    * This file contains "rules" in the form of objects with the following
    * properties:
    * {
-   *   invalidProperties (see note):
+   *   invalidProperties:
    *     Array of CSS property names that are inactive if the rule matches.
-   *   validProperties (see note):
-   *     Array of CSS property names that are active if the rule matches.
    *   when:
    *     The rule itself, a JS function used to identify the conditions
    *     indicating whether a property is valid or not.
@@ -43,8 +41,6 @@ class InactivePropertyHelper {
    *   numFixProps:
    *     The number of properties we suggest in the fixId string.
    * }
-   *
-   * NOTE: validProperties and invalidProperties are mutually exclusive.
    *
    * If you add a new rule, also add a test for it in:
    * server/tests/mochitest/test_inspector-inactive-property-helper.html
@@ -176,6 +172,29 @@ class InactivePropertyHelper {
         msgId: "inactive-css-property-because-of-display",
         numFixProps: 1,
       },
+      {
+        invalidProperties: ["display"],
+        when: () =>
+          this.isFloated &&
+          this.checkResolvedStyle("display", [
+            "inline",
+            "inline-block",
+            "inline-table",
+            "inline-flex",
+            "inline-grid",
+            "table-cell",
+            "table-row",
+            "table-row-group",
+            "table-header-group",
+            "table-footer-group",
+            "table-column",
+            "table-column-group",
+            "table-caption",
+          ]),
+        fixId: "inactive-css-not-display-block-on-floated-fix",
+        msgId: "inactive-css-not-display-block-on-floated",
+        numFixProps: 2,
+      },
     ];
   }
 
@@ -244,8 +263,6 @@ class InactivePropertyHelper {
         isRuleConcerned =
           validator.invalidProperties === "*" ||
           validator.invalidProperties.includes(property);
-      } else if (validator.validProperties) {
-        isRuleConcerned = !validator.validProperties.includes(property);
       }
 
       if (!isRuleConcerned) {
@@ -340,22 +357,7 @@ class InactivePropertyHelper {
    * @param {Array} values
    *        Values to compare against.
    */
-  checkStyle(propName, values) {
-    return this.checkStyleForNode(this.node, propName, values);
-  }
-
-  /**
-   * Check if a node's propName is set to one of the values passed in the values
-   * array.
-   *
-   * @param {DOMNode} node
-   *        The node to check.
-   * @param {String} propName
-   *        Property name to check.
-   * @param {Array} values
-   *        Values to compare against.
-   */
-  checkStyleForNode(node, propName, values) {
+  checkComputedStyle(propName, values) {
     if (!this.style) {
       return false;
     }
@@ -363,10 +365,28 @@ class InactivePropertyHelper {
   }
 
   /**
+   * Check if a rule's propName is set to one of the values passed in the values
+   * array.
+   *
+   * @param {String} propName
+   *        Property name to check.
+   * @param {Array} values
+   *        Values to compare against.
+   */
+  checkResolvedStyle(propName, values) {
+    if (!(this.cssRule && this.cssRule.style)) {
+      return false;
+    }
+    const { style } = this.cssRule;
+
+    return values.some(value => style[propName] === value);
+  }
+
+  /**
    *  Check if the current node is an inline-level box.
    */
   isInlineLevel() {
-    return this.checkStyle("display", [
+    return this.checkComputedStyle("display", [
       "inline",
       "inline-block",
       "inline-table",
@@ -385,7 +405,7 @@ class InactivePropertyHelper {
    * of `display:flex` or `display:inline-flex`.
    */
   get flexContainer() {
-    return this.checkStyle("display", ["flex", "inline-flex"]);
+    return this.checkComputedStyle("display", ["flex", "inline-flex"]);
   }
 
   /**
@@ -400,7 +420,7 @@ class InactivePropertyHelper {
    * of `display:grid` or `display:inline-grid`.
    */
   get gridContainer() {
-    return this.checkStyle("display", ["grid", "inline-grid"]);
+    return this.checkComputedStyle("display", ["grid", "inline-grid"]);
   }
 
   /**
@@ -415,8 +435,8 @@ class InactivePropertyHelper {
    * `column-width` or `column-count` property is not `auto`.
    */
   get multiColContainer() {
-    const autoColumnWidth = this.checkStyle("column-width", ["auto"]);
-    const autoColumnCount = this.checkStyle("column-count", ["auto"]);
+    const autoColumnWidth = this.checkComputedStyle("column-width", ["auto"]);
+    const autoColumnCount = this.checkComputedStyle("column-count", ["auto"]);
 
     return !autoColumnWidth || !autoColumnCount;
   }
@@ -479,6 +499,13 @@ class InactivePropertyHelper {
    */
   get nonReplaced() {
     return !this.replaced;
+  }
+
+  /**
+   * Check if the current node is floated
+   */
+  get isFloated() {
+    return this.style && this.style.cssFloat !== "none";
   }
 
   /**
@@ -615,11 +642,7 @@ class InactivePropertyHelper {
       }
       const position = this.style ? this.style.position : null;
       const cssFloat = this.style ? this.style.cssFloat : null;
-      if (
-        position === "absolute" ||
-        position === "fixed" ||
-        cssFloat !== "none"
-      ) {
+      if (position === "fixed" || cssFloat !== "none") {
         // Out of flow, not a grid item.
         return null;
       }

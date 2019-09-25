@@ -99,8 +99,7 @@ loader.lazyRequireGetter(
 loader.lazyRequireGetter(
   this,
   "ResponsiveUIManager",
-  "devtools/client/responsive/manager",
-  true
+  "devtools/client/responsive/manager"
 );
 loader.lazyImporter(
   this,
@@ -557,20 +556,14 @@ exports.ToolboxButtons = [
   {
     id: "command-button-replay",
     description: l10n("toolbox.buttons.replay"),
-    isTargetSupported: target =>
-      Services.prefs.getBoolPref("devtools.recordreplay.mvp.enabled") &&
-      !target.canRewind &&
-      target.isLocalTab,
+    isTargetSupported: target => !target.canRewind && target.isLocalTab,
     onClick: () => reloadAndRecordTab(),
     isChecked: () => false,
   },
   {
     id: "command-button-stop-replay",
     description: l10n("toolbox.buttons.stopReplay"),
-    isTargetSupported: target =>
-      Services.prefs.getBoolPref("devtools.recordreplay.mvp.enabled") &&
-      target.canRewind &&
-      target.isLocalTab,
+    isTargetSupported: target => target.canRewind && target.isLocalTab,
     onClick: () => reloadAndStopRecordingTab(),
     isChecked: () => true,
   },

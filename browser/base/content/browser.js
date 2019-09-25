@@ -480,7 +480,7 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "identity.fxaccounts.toolbar.enabled",
   false,
   (aPref, aOldVal, aNewVal) => {
-    showFxaToolbarMenu(aNewVal);
+    updateFxaToolbarMenu(aNewVal);
   }
 );
 
@@ -490,7 +490,7 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "identity.fxaccounts.toolbar.accessed",
   false,
   (aPref, aOldVal, aNewVal) => {
-    showFxaToolbarMenu(gFxaToolbarEnabled);
+    updateFxaToolbarMenu(gFxaToolbarEnabled);
   }
 );
 
@@ -500,7 +500,7 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "identity.fxaccounts.service.sendLoginUrl",
   false,
   (aPref, aOldVal, aNewVal) => {
-    showFxaToolbarMenu(gFxaToolbarEnabled);
+    updateFxaToolbarMenu(gFxaToolbarEnabled);
   }
 );
 
@@ -510,7 +510,17 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "identity.fxaccounts.service.monitorLoginUrl",
   false,
   (aPref, aOldVal, aNewVal) => {
-    showFxaToolbarMenu(gFxaToolbarEnabled);
+    updateFxaToolbarMenu(gFxaToolbarEnabled);
+  }
+);
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  this,
+  "gFxaDeviceName",
+  "identity.fxaccounts.account.device.name",
+  false,
+  (aPref, aOldVal, aNewVal) => {
+    updateFxaToolbarMenu(gFxaToolbarEnabled);
   }
 );
 
@@ -520,7 +530,7 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "browser.messaging-system.fxatoolbarbadge.enabled",
   true,
   (aPref, aOldVal, aNewVal) => {
-    showFxaToolbarMenu(gFxaToolbarEnabled);
+    updateFxaToolbarMenu(gFxaToolbarEnabled);
   }
 );
 
@@ -639,7 +649,7 @@ var gNavigatorBundle = {
   },
 };
 
-function showFxaToolbarMenu(enable) {
+function updateFxaToolbarMenu(enable) {
   // We only show the Firefox Account toolbar menu if the feature is enabled and
   // if sync is enabled.
   const syncEnabled = Services.prefs.getBoolPref(
@@ -685,6 +695,10 @@ function showFxaToolbarMenu(enable) {
     ).hidden = !gFxaMonitorLoginUrl;
     document.getElementById("fxa-menu-service-separator").hidden =
       !gFxaSendLoginUrl && !gFxaMonitorLoginUrl;
+
+    document.getElementById(
+      "fxa-menu-device-name-label"
+    ).value = gFxaDeviceName;
   } else {
     mainWindowEl.removeAttribute("fxatoolbarmenu");
   }
@@ -1256,7 +1270,12 @@ XPCOMUtils.defineLazyPreferenceGetter(
 );
 
 function gKeywordURIFixup({ target: browser, data: fixupInfo }) {
-  let deserializeURI = spec => (spec ? makeURI(spec) : null);
+  let deserializeURI = url => {
+    if (url instanceof Ci.nsIURI) {
+      return url;
+    }
+    return url ? makeURI(url) : null;
+  };
 
   // We get called irrespective of whether we did a keyword search, or
   // whether the original input would be vaguely interpretable as a URL,
@@ -1792,7 +1811,7 @@ var gBrowserInit = {
 
     this._setInitialFocus();
 
-    showFxaToolbarMenu(gFxaToolbarEnabled);
+    updateFxaToolbarMenu(gFxaToolbarEnabled);
   },
 
   onLoad() {
@@ -1974,10 +1993,6 @@ var gBrowserInit = {
     // until all of its dependencies are handled.
     Services.appShell.hiddenDOMWindow;
 
-    // We need to set the OfflineApps message listeners up before we
-    // load homepages, which might need them.
-    OfflineApps.init();
-
     gBrowser.addEventListener(
       "InsecureLoginFormsStateChange",
       function() {
@@ -2115,7 +2130,7 @@ var gBrowserInit = {
     window.addEventListener("dragover", MousePosTracker);
 
     gNavToolbox.addEventListener("customizationstarting", CustomizationHandler);
-    gNavToolbox.addEventListener("customizationending", CustomizationHandler);
+    gNavToolbox.addEventListener("aftercustomization", CustomizationHandler);
 
     SessionStore.promiseInitialized.then(() => {
       // Bail out if the window has been closed in the meantime.
@@ -2877,7 +2892,7 @@ function focusAndSelectUrlBar() {
 function openLocation(event) {
   if (window.location.href == AppConstants.BROWSER_CHROME_URL) {
     focusAndSelectUrlBar();
-    if (gURLBar.openViewOnFocus && !gURLBar.view.isOpen) {
+    if (gURLBar.openViewOnFocusForCurrentTab && !gURLBar.view.isOpen) {
       gURLBar.startQuery({ event });
     }
     return;
@@ -3554,7 +3569,6 @@ var BrowserOnClick = {
     mm.addMessageListener("Browser:SiteBlockedError", this);
     mm.addMessageListener("Browser:SetSSLErrorReportAuto", this);
     mm.addMessageListener("Browser:ResetSSLPreferences", this);
-    mm.addMessageListener("Browser:SSLErrorReportTelemetry", this);
   },
 
   uninit() {
@@ -3563,7 +3577,6 @@ var BrowserOnClick = {
     mm.removeMessageListener("Browser:SiteBlockedError", this);
     mm.removeMessageListener("Browser:SetSSLErrorReportAuto", this);
     mm.removeMessageListener("Browser:ResetSSLPreferences", this);
-    mm.removeMessageListener("Browser:SSLErrorReportTelemetry", this);
   },
 
   receiveMessage(msg) {
@@ -3605,12 +3618,6 @@ var BrowserOnClick = {
         }
         Services.telemetry.getHistogramById("TLS_ERROR_REPORT_UI").add(bin);
         break;
-      case "Browser:SSLErrorReportTelemetry":
-        let reportStatus = msg.data.reportStatus;
-        Services.telemetry
-          .getHistogramById("TLS_ERROR_REPORT_UI")
-          .add(reportStatus);
-        break;
     }
   },
 
@@ -3630,9 +3637,7 @@ var BrowserOnClick = {
           let certsStringURL = certs.map(elem => `cert=${elem}`);
           certsStringURL = certsStringURL.join("&");
           let url = `about:certificate?${certsStringURL}`;
-          openTrustedLinkIn(url, "tab", {
-            triggeringPrincipal: browser.contentPrincipal,
-          });
+          openTrustedLinkIn(url, "tab");
         } else {
           Services.ww.openWindow(
             window,
@@ -3882,7 +3887,7 @@ function BrowserReloadWithFlags(reloadFlags) {
     }
   }
 
-  if (unchangedRemoteness.length == 0) {
+  if (!unchangedRemoteness.length) {
     return;
   }
 
@@ -4687,7 +4692,7 @@ const BrowserSearch = {
     }
 
     var engines = gBrowser.selectedBrowser.engines;
-    if (engines && engines.length > 0) {
+    if (engines && engines.length) {
       searchBar.setAttribute("addengines", "true");
     } else {
       searchBar.removeAttribute("addengines");
@@ -4732,10 +4737,7 @@ const BrowserSearch = {
     }
 
     let focusUrlBarIfSearchFieldIsNotActive = function(aSearchBar) {
-      if (
-        !aSearchBar ||
-        document.activeElement != aSearchBar.textbox.inputField
-      ) {
+      if (!aSearchBar || document.activeElement != aSearchBar.textbox) {
         // Limit the results to search suggestions, like the search bar.
         gURLBar.search(UrlbarTokenizer.RESTRICT.SEARCH);
       }
@@ -7077,7 +7079,7 @@ var gUIDensity = {
     }
 
     gBrowser.tabContainer.uiDensityChanged();
-    gURLBar.initLayoutBreakout();
+    gURLBar.updateLayoutBreakout();
   },
 };
 
@@ -7938,115 +7940,6 @@ var BrowserOffline = {
     }
 
     this._uiElement.setAttribute("checked", aOffline);
-  },
-};
-
-var OfflineApps = {
-  warnUsage(browser, principal, host) {
-    if (!browser) {
-      return;
-    }
-
-    let mainAction = {
-      label: gNavigatorBundle.getString("offlineApps.manageUsage"),
-      accessKey: gNavigatorBundle.getString("offlineApps.manageUsageAccessKey"),
-      callback: this.manage,
-    };
-
-    let warnQuotaKB = Services.prefs.getIntPref("offline-apps.quota.warn");
-    // This message shows the quota in MB, and so we divide the quota (in kb) by 1024.
-    let message = gNavigatorBundle.getFormattedString("offlineApps.usage", [
-      host,
-      warnQuotaKB / 1024,
-    ]);
-
-    let anchorID = "indexedDB-notification-icon";
-    let options = {
-      persistent: true,
-      hideClose: true,
-    };
-    PopupNotifications.show(
-      browser,
-      "offline-app-usage",
-      message,
-      anchorID,
-      mainAction,
-      null,
-      options
-    );
-
-    // Now that we've warned once, prevent the warning from showing up
-    // again.
-    Services.perms.addFromPrincipal(
-      principal,
-      "offline-app",
-      Ci.nsIOfflineCacheUpdateService.ALLOW_NO_WARN
-    );
-  },
-
-  // XXX: duplicated in preferences/advanced.js
-  _getOfflineAppUsage(host, groups) {
-    let cacheService = Cc[
-      "@mozilla.org/network/application-cache-service;1"
-    ].getService(Ci.nsIApplicationCacheService);
-    if (!groups) {
-      try {
-        groups = cacheService.getGroups();
-      } catch (ex) {
-        return 0;
-      }
-    }
-
-    let usage = 0;
-    for (let group of groups) {
-      let uri = Services.io.newURI(group);
-      if (uri.asciiHost == host) {
-        let cache = cacheService.getActiveCache(group);
-        usage += cache.usage;
-      }
-    }
-
-    return usage;
-  },
-
-  _usedMoreThanWarnQuota(principal, asciiHost) {
-    // if the user has already allowed excessive usage, don't bother checking
-    if (
-      Services.perms.testExactPermissionFromPrincipal(
-        principal,
-        "offline-app"
-      ) != Ci.nsIOfflineCacheUpdateService.ALLOW_NO_WARN
-    ) {
-      let usageBytes = this._getOfflineAppUsage(asciiHost);
-      let warnQuotaKB = Services.prefs.getIntPref("offline-apps.quota.warn");
-      // The pref is in kb, the usage we get is in bytes, so multiply the quota
-      // to compare correctly:
-      if (usageBytes >= warnQuotaKB * 1024) {
-        return true;
-      }
-    }
-
-    return false;
-  },
-
-  manage() {
-    openPreferences("panePrivacy");
-  },
-
-  receiveMessage(msg) {
-    if (msg.name !== "OfflineApps:CheckUsage") {
-      return;
-    }
-    let uri = makeURI(msg.data.uri);
-    let principal = E10SUtils.deserializePrincipal(msg.data.principal);
-    if (this._usedMoreThanWarnQuota(principal, uri.asciiHost)) {
-      this.warnUsage(msg.target, principal, uri.host);
-    }
-  },
-
-  init() {
-    let mm = window.messageManager;
-    mm.addMessageListener("OfflineApps:CheckUsage", this);
   },
 };
 

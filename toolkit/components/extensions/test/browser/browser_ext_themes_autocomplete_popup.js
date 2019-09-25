@@ -123,7 +123,7 @@ add_task(async function test_popup_url() {
   );
 
   // Set the selected attribute to true to test the highlight popup properties
-  UrlbarTestUtils.setSelectedIndex(window, 1);
+  UrlbarTestUtils.setSelectedRowIndex(window, 1);
   let actionResult = await UrlbarTestUtils.getDetailsOfResultAt(window, 0);
   let urlResult = await UrlbarTestUtils.getDetailsOfResultAt(window, 1);
   let resultCS = window.getComputedStyle(urlResult.element.row);
@@ -142,7 +142,7 @@ add_task(async function test_popup_url() {
 
   // Now set the index to somewhere not on the first two, so that we can test both
   // url and action text colors.
-  UrlbarTestUtils.setSelectedIndex(window, 2);
+  UrlbarTestUtils.setSelectedRowIndex(window, 2);
 
   Assert.equal(
     window.getComputedStyle(urlResult.element.url).color,
@@ -253,16 +253,19 @@ add_task(async function test_popup_url() {
     "darktext should not be set!"
   );
 
-  // Calculate what GrayText should be. May differ between platforms.
-  let span = document.createXULElement("span");
-  span.style.color = "GrayText";
-  document.documentElement.appendChild(span);
-  let GRAY_TEXT = window.getComputedStyle(span).color;
-  span.remove();
+  // Calculate what GrayText should be. Differs between platforms.
+  // We don't use graytext for urlbar results on Mac as it's too faint.
+  if (AppConstants.platform != "macosx") {
+    let span = document.createXULElement("span");
+    span.style.color = "GrayText";
+    document.documentElement.appendChild(span);
+    let GRAY_TEXT = window.getComputedStyle(span).color;
+    span.remove();
 
-  Assert.equal(
-    window.getComputedStyle(urlResult.element.separator, ":before").color,
-    GRAY_TEXT,
-    `Urlbar popup separator color should be set to ${GRAY_TEXT}`
-  );
+    Assert.equal(
+      window.getComputedStyle(urlResult.element.separator, ":before").color,
+      GRAY_TEXT,
+      `Urlbar popup separator color should be set to ${GRAY_TEXT}`
+    );
+  }
 });

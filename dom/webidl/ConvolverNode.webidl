@@ -15,9 +15,11 @@ dictionary ConvolverOptions : AudioNodeOptions {
              boolean      disableNormalization = false;
 };
 
-[Pref="dom.webaudio.enabled",
- Constructor(BaseAudioContext context, optional ConvolverOptions options = {})]
+[Pref="dom.webaudio.enabled"]
 interface ConvolverNode : AudioNode {
+      [Throws]
+      constructor(BaseAudioContext context, optional
+                  ConvolverOptions options = {});
 
       [SetterThrows]
       attribute AudioBuffer? buffer;
@@ -26,5 +28,5 @@ interface ConvolverNode : AudioNode {
 };
 
 // Mozilla extension
-ConvolverNode implements AudioNodePassThrough;
+ConvolverNode includes AudioNodePassThrough;
 

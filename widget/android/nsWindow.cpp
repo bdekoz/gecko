@@ -125,6 +125,13 @@ static bool sFailedToCreateGLContext = false;
 static const double SWIPE_MAX_PINCH_DELTA_INCHES = 0.4;
 static const double SWIPE_MIN_DISTANCE_INCHES = 0.6;
 
+static const int32_t INPUT_RESULT_UNHANDLED =
+    java::PanZoomController::INPUT_RESULT_UNHANDLED;
+static const int32_t INPUT_RESULT_HANDLED =
+    java::PanZoomController::INPUT_RESULT_HANDLED;
+static const int32_t INPUT_RESULT_HANDLED_CONTENT =
+    java::PanZoomController::INPUT_RESULT_HANDLED_CONTENT;
+
 template <typename Lambda, bool IsStatic, typename InstanceType, class Impl>
 class nsWindow::WindowEvent : public Runnable {
   bool IsStaleCall() {
@@ -421,6 +428,7 @@ class nsWindow::NPZCSupport final
   using Base::DisposeNative;
 
   void OnDetach(already_AddRefed<Runnable> aDisposer) {
+    RefPtr<Runnable> disposer = aDisposer;
     // There are several considerations when shutting down NPZC. 1) The
     // Gecko thread may destroy NPZC at any time when nsWindow closes. 2)
     // There may be pending events on the Gecko thread when NPZC is
@@ -461,7 +469,7 @@ class nsWindow::NPZCSupport final
 
       uiThread->Dispatch(NS_NewRunnableFunction(
           "NPZCSupport::OnDetach",
-          [npzc, disposer = RefPtr<Runnable>(aDisposer)] {
+          [npzc, disposer = std::move(disposer)] {
             npzc->SetAttached(false);
             disposer->Run();
           }));
@@ -485,8 +493,8 @@ class nsWindow::NPZCSupport final
     }
   }
 
-  bool HandleScrollEvent(int64_t aTime, int32_t aMetaState, float aX, float aY,
-                         float aHScroll, float aVScroll) {
+  int32_t HandleScrollEvent(int64_t aTime, int32_t aMetaState, float aX,
+                            float aY, float aHScroll, float aVScroll) {
     MOZ_ASSERT(AndroidBridge::IsJavaUiThread());
 
     RefPtr<IAPZCTreeManager> controller;
@@ -496,7 +504,7 @@ class nsWindow::NPZCSupport final
     }
 
     if (!controller) {
-      return false;
+      return INPUT_RESULT_UNHANDLED;
     }
 
     ScreenPoint origin = ScreenPoint(aX, aY);
@@ -517,21 +525,19 @@ class nsWindow::NPZCSupport final
         // to do?
         WheelDeltaAdjustmentStrategy::eNone);
 
-    ScrollableLayerGuid guid;
-    uint64_t blockId;
-    nsEventStatus status =
-        controller->InputBridge()->ReceiveInputEvent(input, &guid, &blockId);
+    APZEventResult result = controller->InputBridge()->ReceiveInputEvent(input);
 
-    if (status == nsEventStatus_eConsumeNoDefault) {
-      return true;
+    if (result.mStatus == nsEventStatus_eConsumeNoDefault) {
+      return INPUT_RESULT_HANDLED;
     }
 
-    PostInputEvent([input, guid, blockId, status](nsWindow* window) {
+    PostInputEvent([input, result](nsWindow* window) {
       WidgetWheelEvent wheelEvent = input.ToWidgetWheelEvent(window);
-      window->ProcessUntransformedAPZEvent(&wheelEvent, guid, blockId, status);
+      window->ProcessUntransformedAPZEvent(&wheelEvent, result);
     });
 
-    return true;
+    return result.mHitRegionWithApzAwareListeners ? INPUT_RESULT_HANDLED_CONTENT
+                                                  : INPUT_RESULT_HANDLED;
   }
 
  private:
@@ -578,8 +584,8 @@ class nsWindow::NPZCSupport final
   }
 
  public:
-  bool HandleMouseEvent(int32_t aAction, int64_t aTime, int32_t aMetaState,
-                        float aX, float aY, int buttons) {
+  int32_t HandleMouseEvent(int32_t aAction, int64_t aTime, int32_t aMetaState,
+                           float aX, float aY, int buttons) {
     MOZ_ASSERT(AndroidBridge::IsJavaUiThread());
 
     RefPtr<IAPZCTreeManager> controller;
@@ -589,7 +595,7 @@ class nsWindow::NPZCSupport final
     }
 
     if (!controller) {
-      return false;
+      return INPUT_RESULT_UNHANDLED;
     }
 
     MouseInput::MouseType mouseType = MouseInput::MOUSE_NONE;
@@ -622,7 +628,7 @@ class nsWindow::NPZCSupport final
     }
 
     if (mouseType == MouseInput::MOUSE_NONE) {
-      return false;
+      return INPUT_RESULT_UNHANDLED;
     }
 
     ScreenPoint origin = ScreenPoint(aX, aY);
@@ -632,24 +638,22 @@ class nsWindow::NPZCSupport final
                      ConvertButtons(buttons), origin, aTime,
                      GetEventTimeStamp(aTime), GetModifiers(aMetaState));
 
-    ScrollableLayerGuid guid;
-    uint64_t blockId;
-    nsEventStatus status =
-        controller->InputBridge()->ReceiveInputEvent(input, &guid, &blockId);
+    APZEventResult result = controller->InputBridge()->ReceiveInputEvent(input);
 
-    if (status == nsEventStatus_eConsumeNoDefault) {
-      return true;
+    if (result.mStatus == nsEventStatus_eConsumeNoDefault) {
+      return INPUT_RESULT_HANDLED;
     }
 
-    PostInputEvent([input, guid, blockId, status](nsWindow* window) {
+    PostInputEvent([input, result](nsWindow* window) {
       WidgetMouseEvent mouseEvent = input.ToWidgetMouseEvent(window);
-      window->ProcessUntransformedAPZEvent(&mouseEvent, guid, blockId, status);
+      window->ProcessUntransformedAPZEvent(&mouseEvent, result);
     });
 
-    return true;
+    return result.mHitRegionWithApzAwareListeners ? INPUT_RESULT_HANDLED_CONTENT
+                                                  : INPUT_RESULT_HANDLED;
   }
 
-  bool HandleMotionEvent(
+  int32_t HandleMotionEvent(
       const PanZoomController::NativeProvider::LocalRef& aInstance,
       int32_t aAction, int32_t aActionIndex, int64_t aTime, int32_t aMetaState,
       float aScreenX, float aScreenY, jni::IntArray::Param aPointerId,
@@ -665,7 +669,7 @@ class nsWindow::NPZCSupport final
     }
 
     if (!controller) {
-      return false;
+      return INPUT_RESULT_UNHANDLED;
     }
 
     nsTArray<int32_t> pointerId(aPointerId->GetElements());
@@ -694,7 +698,7 @@ class nsWindow::NPZCSupport final
         type = MultiTouchInput::MULTITOUCH_CANCEL;
         break;
       default:
-        return false;
+        return INPUT_RESULT_UNHANDLED;
     }
 
     MultiTouchInput input(type, aTime, GetEventTimeStamp(aTime), 0);
@@ -750,22 +754,21 @@ class nsWindow::NPZCSupport final
           ScreenSize::FromUnknownSize(radius), orien, pressure[i]));
     }
 
-    ScrollableLayerGuid guid;
-    uint64_t blockId;
-    nsEventStatus status =
-        controller->InputBridge()->ReceiveInputEvent(input, &guid, &blockId);
+    APZEventResult result = controller->InputBridge()->ReceiveInputEvent(input);
 
-    if (status == nsEventStatus_eConsumeNoDefault) {
-      return true;
+    if (result.mStatus == nsEventStatus_eConsumeNoDefault) {
+      return INPUT_RESULT_HANDLED;
     }
 
     // Dispatch APZ input event on Gecko thread.
-    PostInputEvent([input, guid, blockId, status](nsWindow* window) {
+    PostInputEvent([input, result](nsWindow* window) {
       WidgetTouchEvent touchEvent = input.ToWidgetTouchEvent(window);
-      window->ProcessUntransformedAPZEvent(&touchEvent, guid, blockId, status);
+      window->ProcessUntransformedAPZEvent(&touchEvent, result);
       window->DispatchHitTest(touchEvent);
     });
-    return true;
+
+    return result.mHitRegionWithApzAwareListeners ? INPUT_RESULT_HANDLED_CONTENT
+                                                  : INPUT_RESULT_HANDLED;
   }
 };
 
@@ -850,6 +853,7 @@ class nsWindow::LayerViewSupport final
   using Base::DisposeNative;
 
   void OnDetach(already_AddRefed<Runnable> aDisposer) {
+    RefPtr<Runnable> disposer = aDisposer;
     if (RefPtr<nsThread> uiThread = GetAndroidUiThread()) {
       GeckoSession::Compositor::GlobalRef compositor(mCompositor);
       if (!compositor) {
@@ -858,7 +862,7 @@ class nsWindow::LayerViewSupport final
 
       uiThread->Dispatch(NS_NewRunnableFunction(
           "LayerViewSupport::OnDetach",
-          [compositor, disposer = RefPtr<Runnable>(aDisposer),
+          [compositor, disposer = std::move(disposer),
            results = &mCapturePixelsResults, window = &mWindow] {
             if (LockedWindowPtr lock{*window}) {
               while (!results->empty()) {

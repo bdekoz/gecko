@@ -55,3 +55,21 @@ certificate-viewer-timestamp = Timestamp
 certificate-viewer-value = Value
 certificate-viewer-version = Version
 certificate-viewer-business-category = Business Category
+# This message is used as a row header in the Miscellaneous section. 
+# The associated data cell contains links to download the certificate.
+certificate-viewer-download = Download
+# This message is used to replace boolean values (true/false) in several certificate fields, e.g. Certificate Authority
+# Variables:
+#   $boolean (String) - true/false value for the specific field
+certificate-viewer-boolean = { $boolean ->
+  [true] Yes
+ *[false] No
+}
+
+## Variables:
+##   $fileName (String) - The file name to save the PEM data in, derived from the common name from the certificate being displayed.
+
+certificate-viewer-download-pem = PEM (cert)
+  .download = { $fileName }.pem
+certificate-viewer-download-pem-chain = PEM (chain)
+  .download = { $fileName }-chain.pem

@@ -11,8 +11,10 @@
  * liability, trademark and document use rules apply.
  */
 
-[Constructor]
 interface DocumentFragment : Node {
+  [Throws]
+  constructor();
+
   Element? getElementById(DOMString elementId);
 };
 
@@ -24,4 +26,4 @@ partial interface DocumentFragment {
   NodeList  querySelectorAll(DOMString selectors);
 };
 
-DocumentFragment implements ParentNode;
+DocumentFragment includes ParentNode;

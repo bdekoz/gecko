@@ -4,10 +4,10 @@
 
 use api::{MixBlendMode, PipelineId, PremultipliedColorF, FilterPrimitiveKind};
 use api::{PropertyBinding, PropertyBindingId, FilterPrimitive, FontRenderMode};
-use api::{DebugFlags, RasterSpace, ImageKey, ColorF};
+use api::{DebugFlags, RasterSpace, ImageKey, ColorF, PrimitiveFlags};
 use api::units::*;
 use crate::box_shadow::{BLUR_SAMPLE_SCALE};
-use crate::clip::{ClipStore, ClipDataStore, ClipChainInstance, ClipDataHandle, ClipChainId};
+use crate::clip::{ClipStore, ClipChainInstance, ClipDataHandle, ClipChainId};
 use crate::clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX,
     ClipScrollTree, CoordinateSpaceMapping, SpatialNodeIndex, VisibleFace, CoordinateSystemId
 };
@@ -17,13 +17,13 @@ use euclid::approxeq::ApproxEq;
 use crate::filterdata::SFilterData;
 use crate::frame_builder::{FrameVisibilityContext, FrameVisibilityState};
 use crate::intern::ItemUid;
-use crate::internal_types::{FastHashMap, FastHashSet, PlaneSplitter, Filter};
+use crate::internal_types::{FastHashMap, FastHashSet, PlaneSplitter, Filter, PlaneSplitAnchor};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
 use crate::gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use crate::gpu_types::UvRectKind;
 use plane_split::{Clipper, Polygon, Splitter};
 use crate::prim_store::{SpaceMapper, PrimitiveVisibilityMask, PointKey, PrimitiveTemplateKind};
-use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveInstanceKind};
+use crate::prim_store::{SpaceSnapper, PictureIndex, PrimitiveInstance, PrimitiveInstanceKind};
 use crate::prim_store::{get_raster_rects, PrimitiveScratchBuffer, RectangleKey};
 use crate::prim_store::{OpacityBindingStorage, ImageInstanceStorage, OpacityBindingIndex};
 use crate::print_tree::PrintTreePrinter;
@@ -33,12 +33,11 @@ use crate::render_target::RenderTargetKind;
 use crate::render_task::{RenderTask, RenderTaskLocation, BlurTaskCache, ClearMode};
 use crate::resource_cache::ResourceCache;
 use crate::scene::SceneProperties;
-use crate::scene_builder::Interners;
 use smallvec::SmallVec;
-use std::{mem, u8, u16};
+use std::{mem, u8};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::texture_cache::TextureCacheHandle;
-use crate::util::{TransformedRectKind, MatrixHelpers, MaxRect, scale_factors, VecHelper};
+use crate::util::{TransformedRectKind, MatrixHelpers, MaxRect, scale_factors, VecHelper, subtract_rect};
 use crate::filterdata::{FilterDataHandle};
 
 /*
@@ -140,6 +139,8 @@ pub struct PictureCacheState {
     spatial_nodes: FastHashMap<SpatialNodeIndex, SpatialNodeDependency>,
     /// State of opacity bindings from previous frame
     opacity_bindings: FastHashMap<PropertyBindingId, OpacityBindingInfo>,
+    /// The current transform of the picture cache root spatial node
+    root_transform: TransformKey,
 }
 
 /// Stores a list of cached picture tiles that are retained
@@ -503,9 +504,11 @@ impl Tile {
 
         // Do tile invalidation for any dependencies that we know now.
 
-        // Start frame assuming that the tile has the same content,
-        // unless the fractional offset of the transform root changed.
-        // If the background color of this tile changed, invalidate the whole thing.
+        // Start frame assuming that the tile has the same content.
+        self.is_same_content = true;
+
+        // If the fractional offset of the transform root changed, or tthe background
+        // color of this tile changed, invalidate the whole thing.
         if ctx.fract_changed || ctx.background_color != self.background_color {
             self.background_color = ctx.background_color;
             self.is_same_content = false;
@@ -1133,6 +1136,8 @@ pub struct TileCacheInstance {
     /// The clip chain that represents the shared_clips above. Used to build the local
     /// clip rect for this tile cache.
     shared_clip_chain: ClipChainId,
+    /// The current transform of the picture cache root spatial node
+    root_transform: TransformKey,
 }
 
 impl TileCacheInstance {
@@ -1167,6 +1172,7 @@ impl TileCacheInstance {
             backdrop: BackdropInfo::empty(),
             subpixel_mode: SubpixelMode::Allow,
             fract_offset: PictureVector2D::zero(),
+            root_transform: TransformKey::Local,
             shared_clips,
             shared_clip_chain,
         }
@@ -1283,6 +1289,7 @@ impl TileCacheInstance {
         if let Some(prev_state) = frame_state.retained_tiles.caches.remove(&self.slice) {
             self.tiles.extend(prev_state.tiles);
             self.fract_offset = prev_state.fract_offset;
+            self.root_transform = prev_state.root_transform;
             self.spatial_nodes = prev_state.spatial_nodes;
             self.opacity_bindings = prev_state.opacity_bindings;
         }
@@ -1447,6 +1454,7 @@ impl TileCacheInstance {
     pub fn update_prim_dependencies(
         &mut self,
         prim_instance: &PrimitiveInstance,
+        prim_spatial_node_index: SpatialNodeIndex,
         prim_clip_chain: Option<&ClipChainInstance>,
         local_prim_rect: LayoutRect,
         clip_scroll_tree: &ClipScrollTree,
@@ -1459,7 +1467,7 @@ impl TileCacheInstance {
         surface_index: SurfaceIndex,
     ) -> bool {
         self.map_local_to_surface.set_target_spatial_node(
-            prim_instance.spatial_node_index,
+            prim_spatial_node_index,
             clip_scroll_tree,
         );
 
@@ -1497,8 +1505,8 @@ impl TileCacheInstance {
         );
 
         // Include the prim spatial node, if differs relative to cache root.
-        if prim_instance.spatial_node_index != self.spatial_node_index {
-            prim_info.spatial_nodes.push(prim_instance.spatial_node_index);
+        if prim_spatial_node_index != self.spatial_node_index {
+            prim_info.spatial_nodes.push(prim_spatial_node_index);
         }
 
         // If there was a clip chain, add any clip dependencies to the list for this tile.
@@ -1563,7 +1571,7 @@ impl TileCacheInstance {
 
                     let same_coord_system = {
                         let prim_spatial_node = &clip_scroll_tree
-                            .spatial_nodes[prim_instance.spatial_node_index.0 as usize];
+                            .spatial_nodes[prim_spatial_node_index.0 as usize];
                         let surface_spatial_node = &clip_scroll_tree
                             .spatial_nodes[self.spatial_node_index.0 as usize];
 
@@ -1689,6 +1697,21 @@ impl TileCacheInstance {
         self.tiles_to_draw.clear();
         self.dirty_region.clear();
 
+        // Detect if the picture cache was scrolled or scaled. In this case,
+        // the device space dirty rects aren't applicable (until we properly
+        // integrate with OS compositors that can handle scrolling slices).
+        let root_transform = frame_context
+            .clip_scroll_tree
+            .get_relative_transform(
+                self.spatial_node_index,
+                ROOT_SPATIAL_NODE_INDEX,
+            )
+            .into();
+        let root_transform_changed = root_transform != self.root_transform;
+        if root_transform_changed {
+            self.root_transform = root_transform;
+        }
+
         // Diff the state of the spatial nodes between last frame build and now.
         let mut old_spatial_nodes = mem::replace(&mut self.spatial_nodes, FastHashMap::default());
 
@@ -1752,7 +1775,50 @@ impl TileCacheInstance {
                 &ctx,
                 &mut state,
             ) {
+                // If we have dirty tiles and a scroll didn't occur (e.g. video
+                // playback or animation) we can produce a valid dirty rect for
+                // Gecko to use as partial present.
+                if !root_transform_changed && !tile.dirty_rect.is_empty() {
+                    state.scratch.dirty_rects.push(
+                        (tile.world_dirty_rect * frame_context.global_device_pixel_scale).to_i32()
+                    );
+                }
+
                 self.tiles_to_draw.push(*key);
+            }
+        }
+
+        // If the cache was scrolled / scaled, just push a full-screen dirty rect
+        // for now, to ensure correctness. This won't be required once we fully
+        // support OS compositors, where we can pass the transform of the cache slice.
+        if root_transform_changed {
+            scratch.dirty_rects.push(
+                (frame_context.global_screen_world_rect * frame_context.global_device_pixel_scale).to_i32()
+            );
+        } else {
+            // TODO(gw): This is a total hack! While experimenting with dirty rects and
+            //           partial present, we need to include a dirty rect for the area
+            //           of the screen that is _not_ picture cached. Since we know there
+            //           is only a single picture cache right now, we can derive this
+            //           area by subtracting the picture cache rect from the screen rect.
+            //           This only works reliably while we can assume that (a) there is
+            //           only a single picture cache slice and (b) it's opaque. In future,
+            //           once we enable multiple picture cache slices, we won't need to
+            //           do this at all, since all content will be in a cache slice that
+            //           can provide valid dirty rects.
+            let world_clip_rect = ctx.pic_to_world_mapper
+                .map(&self.local_clip_rect)
+                .expect("bug - unable to map picture clip rect to world");
+            let mut non_cached_rects = Vec::new();
+            subtract_rect(
+                &ctx.global_screen_world_rect,
+                &world_clip_rect,
+                &mut non_cached_rects,
+            );
+            for rect in non_cached_rects {
+                scratch.dirty_rects.push(
+                    (rect * frame_context.global_device_pixel_scale).to_i32()
+                );
             }
         }
 
@@ -1781,7 +1847,7 @@ impl<'a> PictureUpdateState<'a> {
         frame_context: &FrameBuildingContext,
         gpu_cache: &mut GpuCache,
         clip_store: &ClipStore,
-        clip_data_store: &ClipDataStore,
+        data_stores: &mut DataStores,
     ) {
         profile_marker!("UpdatePictures");
 
@@ -1798,7 +1864,7 @@ impl<'a> PictureUpdateState<'a> {
             frame_context,
             gpu_cache,
             clip_store,
-            clip_data_store,
+            data_stores,
         );
 
         if !state.are_raster_roots_assigned {
@@ -1861,27 +1927,37 @@ impl<'a> PictureUpdateState<'a> {
         frame_context: &FrameBuildingContext,
         gpu_cache: &mut GpuCache,
         clip_store: &ClipStore,
-        clip_data_store: &ClipDataStore,
+        data_stores: &mut DataStores,
     ) {
         if let Some(prim_list) = picture_primitives[pic_index.0].pre_update(
             self,
             frame_context,
         ) {
-            for child_pic_index in &prim_list.pictures {
-                self.update(
-                    *child_pic_index,
-                    picture_primitives,
-                    frame_context,
-                    gpu_cache,
-                    clip_store,
-                    clip_data_store,
-                );
+            for cluster in &prim_list.clusters {
+                if cluster.flags.contains(ClusterFlags::IS_PICTURE) {
+                    for prim_instance in &cluster.prim_instances {
+                        let child_pic_index = match prim_instance.kind {
+                            PrimitiveInstanceKind::Picture { pic_index, .. } => pic_index,
+                            _ => unreachable!(),
+                        };
+
+                        self.update(
+                            child_pic_index,
+                            picture_primitives,
+                            frame_context,
+                            gpu_cache,
+                            clip_store,
+                            data_stores,
+                        );
+                    }
+                }
             }
 
             picture_primitives[pic_index.0].post_update(
                 prim_list,
                 self,
                 frame_context,
+                data_stores,
             );
         }
     }
@@ -1911,8 +1987,20 @@ impl<'a> PictureUpdateState<'a> {
             None => fallback_raster_spatial_node,
         };
 
-        for child_pic_index in &picture.prim_list.pictures {
-            self.assign_raster_roots(*child_pic_index, picture_primitives, new_fallback);
+        for cluster in &picture.prim_list.clusters {
+            if cluster.flags.contains(ClusterFlags::IS_PICTURE) {
+                for instance in &cluster.prim_instances {
+                    let child_pic_index = match instance.kind {
+                        PrimitiveInstanceKind::Picture { pic_index, .. } => pic_index,
+                        _ => unreachable!(),
+                    };
+                    self.assign_raster_roots(
+                        child_pic_index,
+                        picture_primitives,
+                        new_fallback,
+                    );
+                }
+            }
         }
     }
 }
@@ -2137,23 +2225,30 @@ pub enum Picture3DContext<C> {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct OrderedPictureChild {
-    pub anchor: usize,
+    pub anchor: PlaneSplitAnchor,
     pub spatial_node_index: SpatialNodeIndex,
     pub gpu_address: GpuCacheAddress,
 }
 
-/// Defines the grouping key for a cluster of primitives in a picture.
-/// In future this will also contain spatial grouping details.
-#[derive(Debug, Hash, Eq, PartialEq, Copy, Clone)]
-struct PrimitiveClusterKey {
-    /// Grouping primitives by spatial node ensures that we can calculate a local
-    /// bounding volume for the cluster, and then transform that by the spatial
-    /// node transform once to get an updated bounding volume for the entire cluster.
-    spatial_node_index: SpatialNodeIndex,
-    /// We want to separate clusters that have different backface visibility properties
-    /// so that we can accept / reject an entire cluster at once if the backface is not
-    /// visible.
-    is_backface_visible: bool,
+bitflags! {
+    /// A set of flags describing why a picture may need a backing surface.
+    #[cfg_attr(feature = "capture", derive(Serialize))]
+    pub struct ClusterFlags: u32 {
+        /// This cluster is a picture
+        const IS_PICTURE = 1;
+        /// Whether this cluster is visible when the position node is a backface.
+        const IS_BACKFACE_VISIBLE = 2;
+        /// This flag is set during the first pass picture traversal, depending on whether
+        /// the cluster is visible or not. It's read during the second pass when primitives
+        /// consult their owning clusters to see if the primitive itself is visible.
+        const IS_VISIBLE = 4;
+        /// Is a backdrop-filter cluster that requires special handling during post_update.
+        const IS_BACKDROP_FILTER = 8;
+        /// Force creation of a picture caching slice before this cluster.
+        const CREATE_PICTURE_CACHE_PRE = 16;
+        /// Force creation of a picture caching slice after this cluster.
+        const CREATE_PICTURE_CACHE_POST = 32;
+    }
 }
 
 /// Descriptor for a cluster of primitives. For now, this is quite basic but will be
@@ -2161,48 +2256,66 @@ struct PrimitiveClusterKey {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveCluster {
     /// The positioning node for this cluster.
-    spatial_node_index: SpatialNodeIndex,
-    /// Whether this cluster is visible when the position node is a backface.
-    is_backface_visible: bool,
+    pub spatial_node_index: SpatialNodeIndex,
     /// The bounding rect of the cluster, in the local space of the spatial node.
     /// This is used to quickly determine the overall bounding rect for a picture
     /// during the first picture traversal, which is needed for local scale
     /// determination, and render task size calculations.
     bounding_rect: LayoutRect,
-    /// This flag is set during the first pass picture traversal, depending on whether
-    /// the cluster is visible or not. It's read during the second pass when primitives
-    /// consult their owning clusters to see if the primitive itself is visible.
-    pub is_visible: bool,
+    /// The list of primitive instances in this cluster.
+    pub prim_instances: Vec<PrimitiveInstance>,
+    /// Various flags / state for this cluster.
+    pub flags: ClusterFlags,
+}
+
+/// Where to insert a prim instance in a primitive list.
+#[derive(Debug, Copy, Clone)]
+enum PrimitiveListPosition {
+    Begin,
+    End,
 }
 
 impl PrimitiveCluster {
+    /// Construct a new primitive cluster for a given positioning node.
     fn new(
         spatial_node_index: SpatialNodeIndex,
-        is_backface_visible: bool,
+        flags: ClusterFlags,
     ) -> Self {
         PrimitiveCluster {
             bounding_rect: LayoutRect::zero(),
             spatial_node_index,
-            is_backface_visible,
-            is_visible: false,
+            flags,
+            prim_instances: Vec::new(),
         }
     }
+
+    /// Return true if this cluster is compatible with the given params
+    pub fn is_compatible(
+        &self,
+        spatial_node_index: SpatialNodeIndex,
+        flags: ClusterFlags,
+    ) -> bool {
+        self.flags == flags && self.spatial_node_index == spatial_node_index
+    }
+
+    /// Add a primitive instance to this cluster, at the start or end
+    fn push(
+        &mut self,
+        prim_instance: PrimitiveInstance,
+        prim_size: LayoutSize,
+    ) {
+        let prim_rect = LayoutRect::new(
+            prim_instance.prim_origin,
+            prim_size,
+        );
+        let culling_rect = prim_instance.local_clip_rect
+            .intersection(&prim_rect)
+            .unwrap_or_else(LayoutRect::zero);
+
+        self.bounding_rect = self.bounding_rect.union(&culling_rect);
+        self.prim_instances.push(prim_instance);
+    }
 }
-
-#[derive(Debug, Copy, Clone)]
-pub struct PrimitiveClusterIndex(pub u32);
-
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct ClusterIndex(pub u16);
-
-impl ClusterIndex {
-    pub const INVALID: ClusterIndex = ClusterIndex(u16::MAX);
-}
-
-/// A list of pictures, stored by the PrimitiveList to enable a
-/// fast traversal of just the pictures.
-pub type PictureList = SmallVec<[PictureIndex; 4]>;
 
 /// A list of primitive instances that are added to a picture
 /// This ensures we can keep a list of primitives that
@@ -2210,13 +2323,8 @@ pub type PictureList = SmallVec<[PictureIndex; 4]>;
 /// tree without walking the instance list.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveList {
-    /// The primitive instances, in render order.
-    pub prim_instances: Vec<PrimitiveInstance>,
-    /// List of pictures that are part of this list.
-    /// Used to implement the picture traversal pass.
-    pub pictures: PictureList,
     /// List of primitives grouped into clusters.
-    pub clusters: SmallVec<[PrimitiveCluster; 4]>,
+    pub clusters: Vec<PrimitiveCluster>,
 }
 
 impl PrimitiveList {
@@ -2226,138 +2334,119 @@ impl PrimitiveList {
     /// picture traversal pass is completed.
     pub fn empty() -> Self {
         PrimitiveList {
-            prim_instances: Vec::new(),
-            pictures: SmallVec::new(),
-            clusters: SmallVec::new(),
+            clusters: Vec::new(),
         }
     }
 
-    /// Construct a new prim list from a list of instances
-    /// in render order. This does some work during scene
-    /// building which makes the frame building traversals
-    /// significantly faster.
-    pub fn new(
-        mut prim_instances: Vec<PrimitiveInstance>,
-        interners: &Interners
-    ) -> Self {
-        let mut pictures = SmallVec::new();
-        let mut clusters_map = FastHashMap::default();
-        let mut clusters: SmallVec<[PrimitiveCluster; 4]> = SmallVec::new();
+    /// Add a primitive instance to this list, at the start or end
+    fn push(
+        &mut self,
+        prim_instance: PrimitiveInstance,
+        prim_size: LayoutSize,
+        spatial_node_index: SpatialNodeIndex,
+        prim_flags: PrimitiveFlags,
+        insert_position: PrimitiveListPosition,
+    ) {
+        let mut flags = ClusterFlags::empty();
 
-        // Walk the list of primitive instances and extract any that
-        // are pictures.
-        for prim_instance in &mut prim_instances {
-            // Check if this primitive is a picture. In future we should
-            // remove this match and embed this info directly in the primitive instance.
-            let is_pic = match prim_instance.kind {
-                PrimitiveInstanceKind::Picture { pic_index, .. } => {
-                    pictures.push(pic_index);
-                    true
-                }
-                _ => {
-                    false
-                }
-            };
-
-            let (is_backface_visible, prim_size) = match prim_instance.kind {
-                PrimitiveInstanceKind::Rectangle { data_handle, .. } |
-                PrimitiveInstanceKind::Clear { data_handle, .. } => {
-                    let data = &interners.prim[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::Image { data_handle, .. } => {
-                    let data = &interners.image[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
-                    let data = &interners.image_border[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
-                    let data = &interners.line_decoration[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
-                    let data = &interners.linear_grad[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::NormalBorder { data_handle, .. } => {
-                    let data = &interners.normal_border[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::Picture { data_handle, .. } => {
-                    let data = &interners.picture[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::RadialGradient { data_handle, ..} => {
-                    let data = &interners.radial_grad[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::TextRun { data_handle, .. } => {
-                    let data = &interners.text_run[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
-                    let data = &interners.yuv_image[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::Backdrop { data_handle, .. } => {
-                    let data = &interners.backdrop[data_handle];
-                    (data.is_backface_visible, data.prim_size)
-                }
-                PrimitiveInstanceKind::PushClipChain |
-                PrimitiveInstanceKind::PopClipChain => {
-                    (true, LayoutSize::zero())
-                }
-            };
-
-            // Get the key for the cluster that this primitive should
-            // belong to.
-            let key = PrimitiveClusterKey {
-                spatial_node_index: prim_instance.spatial_node_index,
-                is_backface_visible,
-            };
-
-            // Find the cluster, or create a new one.
-            let cluster_index = *clusters_map
-                .entry(key)
-                .or_insert_with(|| {
-                    let index = clusters.len();
-                    clusters.push(PrimitiveCluster::new(
-                        prim_instance.spatial_node_index,
-                        is_backface_visible,
-                    ));
-                    index
-                }
-            );
-
-            if prim_instance.is_chased() {
-                println!("\tcluster {} with {:?}", cluster_index, key);
+        // Pictures are always put into a new cluster, to make it faster to
+        // iterate all pictures in a given primitive list.
+        match prim_instance.kind {
+            PrimitiveInstanceKind::Picture { .. } => {
+                flags.insert(ClusterFlags::IS_PICTURE);
             }
-
-            // Pictures don't have a known static local bounding rect (they are
-            // calculated during the picture traversal dynamically). If not
-            // a picture, include a minimal bounding rect in the cluster bounds.
-            let cluster = &mut clusters[cluster_index];
-            if !is_pic {
-                let prim_rect = LayoutRect::new(
-                    prim_instance.prim_origin,
-                    prim_size,
-                );
-                let culling_rect = prim_instance.local_clip_rect
-                    .intersection(&prim_rect)
-                    .unwrap_or_else(LayoutRect::zero);
-
-                cluster.bounding_rect = cluster.bounding_rect.union(&culling_rect);
+            PrimitiveInstanceKind::Backdrop { .. } => {
+                flags.insert(ClusterFlags::IS_BACKDROP_FILTER);
             }
-
-            prim_instance.cluster_index = ClusterIndex(cluster_index as u16);
+            _ => {}
         }
 
+        if prim_flags.contains(PrimitiveFlags::IS_BACKFACE_VISIBLE) {
+            flags.insert(ClusterFlags::IS_BACKFACE_VISIBLE);
+        }
+
+        // Insert the primitive into the first or last cluster as required
+        match insert_position {
+            PrimitiveListPosition::Begin => {
+                let mut cluster = PrimitiveCluster::new(
+                    spatial_node_index,
+                    flags,
+                );
+                cluster.push(prim_instance, prim_size);
+                self.clusters.insert(0, cluster);
+            }
+            PrimitiveListPosition::End => {
+                if let Some(cluster) = self.clusters.last_mut() {
+                    if cluster.is_compatible(spatial_node_index, flags) {
+                        cluster.push(prim_instance, prim_size);
+                        return;
+                    }
+                }
+
+                let mut cluster = PrimitiveCluster::new(
+                    spatial_node_index,
+                    flags,
+                );
+                cluster.push(prim_instance, prim_size);
+                self.clusters.push(cluster);
+            }
+        }
+    }
+
+    /// Add a primitive instance to the start of the list
+    pub fn add_prim_to_start(
+        &mut self,
+        prim_instance: PrimitiveInstance,
+        prim_size: LayoutSize,
+        spatial_node_index: SpatialNodeIndex,
+        flags: PrimitiveFlags,
+    ) {
+        self.push(
+            prim_instance,
+            prim_size,
+            spatial_node_index,
+            flags,
+            PrimitiveListPosition::Begin,
+        )
+    }
+
+    /// Add a primitive instance to the end of the list
+    pub fn add_prim(
+        &mut self,
+        prim_instance: PrimitiveInstance,
+        prim_size: LayoutSize,
+        spatial_node_index: SpatialNodeIndex,
+        flags: PrimitiveFlags,
+    ) {
+        self.push(
+            prim_instance,
+            prim_size,
+            spatial_node_index,
+            flags,
+            PrimitiveListPosition::End,
+        )
+    }
+
+    /// Returns true if there are no clusters (and thus primitives)
+    pub fn is_empty(&self) -> bool {
+        self.clusters.is_empty()
+    }
+
+    /// Merge another primitive list into this one
+    pub fn extend(&mut self, prim_list: PrimitiveList) {
+        self.clusters.extend(prim_list.clusters);
+    }
+
+    /// Return the number of clusters in this prim list
+    pub fn len(&self) -> usize {
+        self.clusters.len()
+    }
+
+    /// Split this primitive list at the given cluster index
+    pub fn split_off(&mut self, index: usize) -> PrimitiveList {
+        let clusters = self.clusters.split_off(index);
         PrimitiveList {
-            prim_instances,
-            pictures,
-            clusters,
+            clusters
         }
     }
 }
@@ -2423,17 +2512,19 @@ pub struct PicturePrimitive {
     /// composited into the parent picture.
     pub spatial_node_index: SpatialNodeIndex,
 
-    /// The local rect of this picture. It is built
-    /// dynamically when updating visibility. It takes
-    /// into account snapping in device space for its
-    /// children.
-    pub snapped_local_rect: LayoutRect,
+    /// The conservative local rect of this picture. It is
+    /// built dynamically during the first picture traversal.
+    /// It is composed of already snapped primitives.
+    pub estimated_local_rect: LayoutRect,
 
     /// The local rect of this picture. It is built
-    /// dynamically during the first picture traversal. It
-    /// does not take into account snapping in device for
-    /// its children.
-    pub unsnapped_local_rect: LayoutRect,
+    /// dynamically during the frame visibility update. It
+    /// differs from the estimated_local_rect because it
+    /// will not contain culled primitives, takes into
+    /// account surface inflation and the whole clip chain.
+    /// It is frequently the same, but may be quite
+    /// different depending on how much was culled.
+    pub precise_local_rect: LayoutRect,
 
     /// If false, this picture needs to (re)build segments
     /// if it supports segment rendering. This can occur
@@ -2457,15 +2548,23 @@ impl PicturePrimitive {
         pt: &mut T,
     ) {
         pt.new_level(format!("{:?}", self_index));
-        pt.add_item(format!("prim_count: {:?}", self.prim_list.prim_instances.len()));
-        pt.add_item(format!("snapped_local_rect: {:?}", self.snapped_local_rect));
-        pt.add_item(format!("unsnapped_local_rect: {:?}", self.unsnapped_local_rect));
+        pt.add_item(format!("cluster_count: {:?}", self.prim_list.clusters.len()));
+        pt.add_item(format!("estimated_local_rect: {:?}", self.estimated_local_rect));
+        pt.add_item(format!("precise_local_rect: {:?}", self.precise_local_rect));
         pt.add_item(format!("spatial_node_index: {:?}", self.spatial_node_index));
         pt.add_item(format!("raster_config: {:?}", self.raster_config));
         pt.add_item(format!("requested_composite_mode: {:?}", self.requested_composite_mode));
 
-        for index in &self.prim_list.pictures {
-            pictures[index.0].print(pictures, *index, pt);
+        for cluster in &self.prim_list.clusters {
+            if cluster.flags.contains(ClusterFlags::IS_PICTURE) {
+                for instance in &cluster.prim_instances {
+                    let index = match instance.kind {
+                        PrimitiveInstanceKind::Picture { pic_index, .. } => pic_index,
+                        _ => unreachable!(),
+                    };
+                    pictures[index.0].print(pictures, index, pt);
+                }
+            }
         }
 
         pt.end_level();
@@ -2533,6 +2632,7 @@ impl PicturePrimitive {
                         spatial_nodes: tile_cache.spatial_nodes,
                         opacity_bindings: tile_cache.opacity_bindings,
                         fract_offset: tile_cache.fract_offset,
+                        root_transform: tile_cache.root_transform,
                     },
                 );
             }
@@ -2548,7 +2648,7 @@ impl PicturePrimitive {
         context_3d: Picture3DContext<OrderedPictureChild>,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
-        is_backface_visible: bool,
+        flags: PrimitiveFlags,
         requested_raster_space: RasterSpace,
         prim_list: PrimitiveList,
         spatial_node_index: SpatialNodeIndex,
@@ -2565,11 +2665,11 @@ impl PicturePrimitive {
             frame_output_pipeline_id,
             extra_gpu_data_handles: SmallVec::new(),
             apply_local_clip_rect,
-            is_backface_visible,
+            is_backface_visible: flags.contains(PrimitiveFlags::IS_BACKFACE_VISIBLE),
             requested_raster_space,
             spatial_node_index,
-            snapped_local_rect: LayoutRect::zero(),
-            unsnapped_local_rect: LayoutRect::zero(),
+            estimated_local_rect: LayoutRect::zero(),
+            precise_local_rect: LayoutRect::zero(),
             tile_cache,
             options,
             segments_are_valid: false,
@@ -2673,7 +2773,7 @@ impl PicturePrimitive {
 
         match self.raster_config {
             Some(ref raster_config) => {
-                let pic_rect = PictureRect::from_untyped(&self.snapped_local_rect.to_untyped());
+                let pic_rect = PictureRect::from_untyped(&self.precise_local_rect.to_untyped());
 
                 let device_pixel_scale = frame_state
                     .surfaces[raster_config.surface_index.0]
@@ -2947,11 +3047,17 @@ impl PicturePrimitive {
                         for key in &tile_cache.tiles_to_draw {
                             let tile = tile_cache.tiles.get_mut(key).expect("bug: no tile found!");
 
+                            // Register active image keys of valid tile.
+                            // TODO(gw): For now, we will register images on any visible
+                            //           tiles as active. This is a hotfix because video
+                            //           images on Mac/Linux are not being correctly detected
+                            //           as non-cacheable. We should investigate / fix the
+                            //           root cause of this.
+                            for image_key in &tile.current_descriptor.image_keys {
+                                frame_state.resource_cache.set_image_active(*image_key);
+                            }
+
                             if tile.is_valid {
-                                // Register active image keys of valid tile.
-                                for image_key in &tile.current_descriptor.image_keys {
-                                    frame_state.resource_cache.set_image_active(*image_key);
-                                }
                                 continue;
                             }
 
@@ -2966,7 +3072,13 @@ impl PicturePrimitive {
                                 // picture cache task.
                                 let scissor_rect = tile.world_dirty_rect.translate(
                                     -tile.world_rect.origin.to_vector()
-                                ) * device_pixel_scale;
+                                );
+                                // The world rect is guaranteed to be device pixel aligned, by the tile
+                                // sizing code in tile::pre_update. However, there might be some
+                                // small floating point accuracy issues (these were observed on ARM
+                                // CPUs). Round the rect here before casting to integer device pixels
+                                // to ensure the scissor rect is correct.
+                                let scissor_rect = (scissor_rect * device_pixel_scale).round();
                                 let cache_item = frame_state.resource_cache.texture_cache.get(handle);
 
                                 let task = RenderTask::new_picture(
@@ -3202,7 +3314,7 @@ impl PicturePrimitive {
         original_local_rect: LayoutRect,
         combined_local_clip_rect: &LayoutRect,
         world_rect: WorldRect,
-        plane_split_anchor: usize,
+        plane_split_anchor: PlaneSplitAnchor,
     ) -> bool {
         let transform = clip_scroll_tree
             .get_world_transform(prim_spatial_node_index);
@@ -3277,7 +3389,8 @@ impl PicturePrimitive {
         // Process the accumulated split planes and order them for rendering.
         // Z axis is directed at the screen, `sort` is ascending, and we need back-to-front order.
         for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
-            let spatial_node_index = self.prim_list.prim_instances[poly.anchor].spatial_node_index;
+            let cluster = &self.prim_list.clusters[poly.anchor.cluster_index];
+            let spatial_node_index = cluster.spatial_node_index;
             let transform = match clip_scroll_tree
                 .get_world_transform(spatial_node_index)
                 .inverse()
@@ -3437,6 +3550,7 @@ impl PicturePrimitive {
         prim_list: PrimitiveList,
         state: &mut PictureUpdateState,
         frame_context: &FrameBuildingContext,
+        data_stores: &mut DataStores,
     ) {
         // Restore the pictures list used during recursion.
         self.prim_list = prim_list;
@@ -3445,8 +3559,10 @@ impl PicturePrimitive {
         state.pop_picture();
 
         for cluster in &mut self.prim_list.clusters {
+            cluster.flags.remove(ClusterFlags::IS_VISIBLE);
+
             // Skip the cluster if backface culled.
-            if !cluster.is_backface_visible {
+            if !cluster.flags.contains(ClusterFlags::IS_BACKFACE_VISIBLE) {
                 // For in-preserve-3d primitives and pictures, the backface visibility is
                 // evaluated relative to the containing block.
                 if let Picture3DContext::In { ancestor_index, .. } = self.context_3d {
@@ -3468,6 +3584,59 @@ impl PicturePrimitive {
                 continue;
             }
 
+            // Update any primitives/cluster bounding rects that can only be done
+            // with information available during frame building.
+            if cluster.flags.contains(ClusterFlags::IS_BACKDROP_FILTER) {
+                let backdrop_to_world_mapper = SpaceMapper::new_with_target(
+                    ROOT_SPATIAL_NODE_INDEX,
+                    cluster.spatial_node_index,
+                    LayoutRect::max_rect(),
+                    frame_context.clip_scroll_tree,
+                );
+
+                for prim_instance in &mut cluster.prim_instances {
+                    match prim_instance.kind {
+                        PrimitiveInstanceKind::Backdrop { data_handle, .. } => {
+                            // The actual size and clip rect of this primitive are determined by computing the bounding
+                            // box of the projected rect of the backdrop-filter element onto the backdrop.
+                            let prim_data = &mut data_stores.backdrop[data_handle];
+                            let spatial_node_index = prim_data.kind.spatial_node_index;
+
+                            // We cannot use the relative transform between the backdrop and the element because
+                            // that doesn't take into account any projection transforms that both spatial nodes are children of.
+                            // Instead, we first project from the element to the world space and get a flattened 2D bounding rect
+                            // in the screen space, we then map this rect from the world space to the backdrop space to get the
+                            // proper bounding box where the backdrop-filter needs to be processed.
+
+                            let prim_to_world_mapper = SpaceMapper::new_with_target(
+                                ROOT_SPATIAL_NODE_INDEX,
+                                spatial_node_index,
+                                LayoutRect::max_rect(),
+                                frame_context.clip_scroll_tree,
+                            );
+
+                            // First map to the screen and get a flattened rect
+                            let prim_rect = prim_to_world_mapper.map(&prim_data.kind.border_rect).unwrap_or_else(LayoutRect::zero);
+                            // Backwards project the flattened rect onto the backdrop
+                            let prim_rect = backdrop_to_world_mapper.unmap(&prim_rect).unwrap_or_else(LayoutRect::zero);
+
+                            // TODO(aosmond): Is this safe? Updating the primitive size during
+                            // frame building is usually problematic since scene building will cache
+                            // the primitive information in the GPU already.
+                            prim_instance.prim_origin = prim_rect.origin;
+                            prim_data.common.prim_size = prim_rect.size;
+                            prim_instance.local_clip_rect = prim_rect;
+
+                            // Update the cluster bounding rect now that we have the backdrop rect.
+                            cluster.bounding_rect = cluster.bounding_rect.union(&prim_rect);
+                        }
+                        _ => {
+                            panic!("BUG: unexpected deferred primitive kind for cluster updates");
+                        }
+                    }
+                }
+            }
+
             // Map the cluster bounding rect into the space of the surface, and
             // include it in the surface bounding rect.
             let surface = state.current_surface_mut();
@@ -3480,7 +3649,7 @@ impl PicturePrimitive {
             // backface checks. In future, this will include spatial clustering
             // which will allow the frame building code to skip most of the
             // current per-primitive culling code.
-            cluster.is_visible = true;
+            cluster.flags.insert(ClusterFlags::IS_VISIBLE);
             if let Some(cluster_rect) = surface.map_local_to_surface.map(&cluster.bounding_rect) {
                 surface.rect = surface.rect.union(&cluster_rect);
             }
@@ -3495,6 +3664,18 @@ impl PicturePrimitive {
             // This inflaction factor is to be applied to the surface itself.
             if self.options.inflate_if_required {
                 surface.rect = raster_config.composite_mode.inflate_picture_rect(surface.rect, surface.inflation_factor);
+
+                // The picture's local rect is calculated as the union of the
+                // snapped primitive rects, which should result in a snapped
+                // local rect, unless it was inflated.
+                let snap_surface_to_raster = SpaceSnapper::new_with_target(
+                    surface.raster_spatial_node_index,
+                    self.spatial_node_index,
+                    surface.device_pixel_scale,
+                    frame_context.clip_scroll_tree,
+                );
+
+                surface.rect = snap_surface_to_raster.snap_rect(&surface.rect);
             }
 
             let mut surface_rect = surface.rect * Scale::new(1.0);
@@ -3502,11 +3683,6 @@ impl PicturePrimitive {
             // Pop this surface from the stack
             let surface_index = state.pop_surface();
             debug_assert_eq!(surface_index, raster_config.surface_index);
-
-            // Snapping may change the local rect slightly, and as such should just be
-            // considered an estimated size for determining if we need raster roots and
-            // preparing the tile cache.
-            self.unsnapped_local_rect = surface_rect;
 
             // Check if any of the surfaces can't be rasterized in local space but want to.
             if raster_config.establishes_raster_root {
@@ -3518,14 +3694,18 @@ impl PicturePrimitive {
                 }
             }
 
+            // Set the estimated and precise local rects. The precise local rect
+            // may be changed again during frame visibility.
+            self.estimated_local_rect = surface_rect;
+            self.precise_local_rect = surface_rect;
+
             // Drop shadows draw both a content and shadow rect, so need to expand the local
             // rect of any surfaces to be composited in parent surfaces correctly.
             match raster_config.composite_mode {
                 PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) => {
                     for shadow in shadows {
-                        let content_rect = surface_rect;
-                        let shadow_rect = surface_rect.translate(shadow.offset);
-                        surface_rect = content_rect.union(&shadow_rect);
+                        let shadow_rect = self.estimated_local_rect.translate(shadow.offset);
+                        surface_rect = surface_rect.union(&shadow_rect);
                     }
                 }
                 _ => {}
@@ -3586,14 +3766,14 @@ impl PicturePrimitive {
                         // Basic brush primitive header is (see end of prepare_prim_for_render_inner in prim_store.rs)
                         //  [brush specific data]
                         //  [segment_rect, segment data]
-                        let shadow_rect = self.snapped_local_rect.translate(shadow.offset);
+                        let shadow_rect = self.precise_local_rect.translate(shadow.offset);
 
                         // ImageBrush colors
                         request.push(shadow.color.premultiplied());
                         request.push(PremultipliedColorF::WHITE);
                         request.push([
-                            self.snapped_local_rect.size.width,
-                            self.snapped_local_rect.size.height,
+                            self.precise_local_rect.size.width,
+                            self.precise_local_rect.size.height,
                             0.0,
                             0.0,
                         ]);
@@ -4300,4 +4480,3 @@ impl TileNode {
         }
     }
 }
-

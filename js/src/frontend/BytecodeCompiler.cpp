@@ -393,7 +393,7 @@ BytecodeCompiler::BytecodeCompiler(JSContext* cx,
       cx(cx),
       options(options),
       sourceObject(cx),
-      directives(options.strictOption),
+      directives(options.forceStrictMode()),
       script(cx) {}
 
 bool BytecodeCompiler::createScriptSource(
@@ -408,8 +408,8 @@ bool BytecodeCompiler::createScriptSource(
 }
 
 bool BytecodeCompiler::canLazilyParse() const {
-  return options.canLazilyParse && !options.discardSource &&
-         !options.sourceIsLazy && !options.forceFullParse();
+  return !options.discardSource && !options.sourceIsLazy &&
+         !options.forceFullParse();
 }
 
 template <typename Unit>
@@ -498,6 +498,10 @@ JSScript* frontend::ScriptCompiler<Unit>::compileScript(
     BytecodeCompiler& info, HandleObject environment, SharedContext* sc) {
   assertSourceParserAndScriptCreated(info);
 
+  // We are about to start parsing the source. Record this information for
+  // telemetry purposes.
+  info.script->scriptSource()->recordParseStarted();
+
   TokenStreamPosition startPosition(info.keepAtoms, parser->tokenStream);
 
   JSContext* cx = info.cx;
@@ -518,6 +522,10 @@ JSScript* frontend::ScriptCompiler<Unit>::compileScript(
     AutoGeckoProfilerEntry pseudoFrame(cx, "script emit",
                                        JS::ProfilingCategoryPair::JS_Parsing);
     if (pn) {
+      // We are about to start emitting bytecode. Record this information for
+      // telemetry purposes.
+      info.script->scriptSource()->recordEmitStarted();
+
       // Publish deferred items
       if (!parser->publishDeferredItems()) {
         return nullptr;
@@ -753,7 +761,7 @@ JSScript* frontend::CompileGlobalBinASTScript(
     return nullptr;
   }
 
-  Directives directives(options.strictOption);
+  Directives directives(options.forceStrictMode());
   GlobalSharedContext globalsc(cx, ScopeKind::Global, directives,
                                options.extraWarningsOption);
 
@@ -804,8 +812,8 @@ static ModuleObject* InternalParseModule(
   AutoAssertReportedException assertException(cx);
 
   CompileOptions options(cx, optionsInput);
-  options.maybeMakeStrictMode(
-      true);  // ES6 10.2.1 Module code is always strict mode code.
+  options.setForceStrictMode();  // ES6 10.2.1 Module code is always strict mode
+                                 // code.
   options.setIsRunOnce(true);
   options.allowHTMLComments = false;
 

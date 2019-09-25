@@ -25,6 +25,7 @@
 #include "nsFrameLoaderOwner.h"
 #include "nsQueryObject.h"
 #include "nsSerializationHelper.h"
+#include "nsFrameLoader.h"
 
 #include "mozilla/dom/JSWindowActorBinding.h"
 #include "mozilla/dom/JSWindowActorChild.h"
@@ -71,11 +72,15 @@ already_AddRefed<WindowGlobalChild> WindowGlobalChild::Create(
   // When creating a new window global child we also need to look at the
   // channel's Cross-Origin-Opener-Policy and set it on the browsing context
   // so it's available in the parent process.
-  nsCOMPtr<nsIHttpChannelInternal> chan =
-      do_QueryInterface(aWindow->GetDocument()->GetChannel());
+  nsCOMPtr<nsIChannel> chan = aWindow->GetDocument()->GetChannel();
+  nsCOMPtr<nsILoadInfo> loadInfo = chan ? chan->LoadInfo() : nullptr;
+  nsCOMPtr<nsIHttpChannelInternal> httpChan = do_QueryInterface(chan);
   nsILoadInfo::CrossOriginOpenerPolicy policy;
-  if (chan && NS_SUCCEEDED(chan->GetCrossOriginOpenerPolicy(
-                  nsILoadInfo::OPENER_POLICY_NULL, &policy))) {
+  if (httpChan &&
+      loadInfo->GetExternalContentPolicyType() ==
+          nsIContentPolicy::TYPE_DOCUMENT &&
+      NS_SUCCEEDED(httpChan->GetCrossOriginOpenerPolicy(
+          nsILoadInfo::OPENER_POLICY_NULL, &policy))) {
     bc->SetOpenerPolicy(policy);
   }
 
@@ -260,10 +265,12 @@ static nsresult ChangeFrameRemoteness(WindowGlobalChild* aWgc,
   // Actually perform the remoteness swap.
   RemotenessOptions options;
   options.mPendingSwitchID.Construct(aPendingSwitchId);
+  options.mRemoteType.Assign(aRemoteType);
 
-  // Only set mRemoteType if it doesn't match the current process' remote type.
-  if (!ContentChild::GetSingleton()->GetRemoteType().Equals(aRemoteType)) {
-    options.mRemoteType.Construct(aRemoteType);
+  // Clear mRemoteType to VoidString() (for non-remote) if it matches the
+  // current process' remote type.
+  if (ContentChild::GetSingleton()->GetRemoteType().Equals(aRemoteType)) {
+    options.mRemoteType.Assign(VoidString());
   }
 
   ErrorResult error;
