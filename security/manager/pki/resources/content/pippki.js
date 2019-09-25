@@ -25,19 +25,19 @@ function setText(id, value) {
   element.appendChild(document.createTextNode(value));
 }
 
-function viewCertHelper(parent, cert, openingOption = "tab") {
+function viewCertHelper(parent, cert) {
   if (!cert) {
     return;
   }
 
   if (Services.prefs.getBoolPref("security.aboutcertificate.enabled")) {
-    let win = Services.wm.getMostRecentWindow("navigator:browser");
+    let rootWindow = window.docShell.rootTreeItem.domWindow;
     let derb64 = encodeURIComponent(cert.getBase64DERString());
     let url = `about:certificate?cert=${derb64}`;
-    win.openTrustedLinkIn(url, openingOption);
+    rootWindow.openTrustedLinkIn(url, "tab");
   } else {
     Services.ww.openWindow(
-      parent,
+      parent && parent.docShell.rootTreeItem.domWindow,
       "chrome://pippki/content/certViewer.xul",
       "_blank",
       "centerscreen,chrome",

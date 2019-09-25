@@ -2,22 +2,257 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-# This file defines the metrics that are recorded by the Glean SDK. They are
-# automatically converted to platform-specific code at build time using the
-# `glean_parser` PyPI package.
-
 $schema: moz://mozilla.org/schemas/glean/metrics/1-0-0
 
-timing:
-  non_blank_paint:
+performance.navigation:
+  bfcache_page_restored:
+    type: custom_distribution
+    range_min: 0
+    range_max: 1
+    bucket_count: 2
+    histogram_type: linear
+    unit: boolean
+    gecko_datapoint: BFCACHE_PAGE_RESTORED
+    description: |
+      Whether bfcache is used when loading a page from session history.
+    bugs:
+      - 1531917
+      - 1551935
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  total_content_page_load_time:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: TOTAL_CONTENT_PAGE_LOAD_TIME
+    description: |
+      Time to load all resources and render in browser in milliseconds.
+    bugs:
+      - 1600000
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+performance.navigation.time:
+  to_non_blank_paint:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: TIME_TO_NON_BLANK_PAINT_MS
     description: |
-      Composite times in milliseconds.
+      The time between navigation start and the first non-blank paint of a foreground root content document, in milliseconds. This only records documents that were in an active docshell throughout the whole time between navigation start and non-blank paint. The non-blank paint timestamp is taken during display list building and does not include rasterization or compositing of that paint.
     bugs:
-      - 1080160
+      - 1307242
+      - 1489524
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  to_dom_interactive:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: TIME_TO_DOM_INTERACTIVE_MS
+    description: |
+      Time in milliseconds from navigationStart to domInteractive.
+    bugs:
+      - 1344893
+      - 1489524
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  to_dom_content_loaded_start:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: TIME_TO_DOM_CONTENT_LOADED_START_MS
+    description: |
+      Time in milliseconds from navigationStart to domContentLoadedEventStart.
+    bugs:
+      - 1344893
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  to_dom_content_loaded_end:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: TIME_TO_DOM_CONTENT_LOADED_END_MS
+    description: |
+      Time in milliseconds from navigationStart to domContentLoadedEventEnd.
+    bugs:
+      - 1344893
+      - 1489524
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  to_dom_complete:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: TIME_TO_DOM_COMPLETE_MS
+    description: |
+      Time in milliseconds from navigationStart to domComplete.
+    bugs:
+      - 1344893
+      - 1489524
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  to_load_event_start:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: TIME_TO_LOAD_EVENT_START_MS
+    description: |
+      Time in milliseconds from navigationStart to loadEventStart.
+    bugs:
+      - 1344893
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  to_load_event_end:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: TIME_TO_LOAD_EVENT_END_MS
+    description: |
+      Time in milliseconds from navigationStart to loadEventEnd.
+    bugs:
+      - 1344893
+      - 1489524
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  to_response_start:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: TIME_TO_RESPONSE_START_MS
+    description: |
+      Time in milliseconds from navigationStart to responseStart.
+    bugs:
+      - 1344893
+      - 1489524
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+performance.navigation.gv:
+  page_load_progress:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: GV_PAGE_LOAD_PROGRESS_MS
+    description: |
+      Time in milliseconds between page load progress start (0) and completion (100).
+    bugs:
+      - 1499418
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  page_load:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: GV_PAGE_LOAD_MS
+    description: |
+      Time taken to load a page in ms. This includes all static contents, no dynamic content. Loading of about: pages is not counted.
+    bugs:
+      - 1499418
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  page_reload:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: GV_PAGE_RELOAD_MS
+    description: |
+      Time taken to reload a page in ms. This includes all static contents, no dynamic content. Loading of about: pages is not counted.
+    bugs:
+      - 1549519
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+performance.interaction:
+  keypress_present_latency:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: KEYPRESS_PRESENT_LATENCY
+    description: |
+      Time between receiving a keypress event on the event loop and compositing its result onto the screen (ms).
+    bugs:
+      - 1506537
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  tab_switch_composite:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: FX_TAB_SWITCH_COMPOSITE_E10S_MS
+    description: |
+      Time between tab selection and first composite of the tab content in e10s windows in milliseconds.
+    bugs:
+      - 1481704
       - 1529352
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+network:
+  cache_v2_hit_time:
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: NETWORK_CACHE_V2_HIT_TIME_MS
+    description: |
+      Time to open existing cache entry file in milliseconds.
+    bugs:
+      - 1489524
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
+    notification_emails:
+      - telemetry-performance-dev@mozilla.com
+    expires: "2020-12-01"
+
+  cache_size: <-- THIS is wrong - size can't be a timing distribution.
+    type: timing_distribution
+    time_unit: millisecond
+    gecko_datapoint: NETWORK_CACHE_SIZE
+    description: |
+      Cache size in megabytes keyed by cache capacity calculation type. Numbers are sampled periodically, every time 2GB of data is written to the cache.
+    bugs:
+      - 1600000
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1529352
     notification_emails:

@@ -206,6 +206,9 @@ class UrlbarInput {
 
     this.dropmarker.addEventListener("mousedown", this);
 
+    this.window.addEventListener("mousedown", this);
+    this.textbox.addEventListener("mousedown", this);
+
     // This is used to detect commands launched from the panel, to avoid
     // recording abandonment events when the command causes a blur event.
     this.view.panel.addEventListener("command", this, true);
@@ -237,6 +240,8 @@ class UrlbarInput {
       this.removeEventListener(name, this);
     }
     this.dropmarker.removeEventListener("mousedown", this);
+    this.window.removeEventListener("mousedown", this);
+    this.textbox.removeEventListener("mousedown", this);
 
     this.view.panel.remove();
     this.endLayoutExtend(true);
@@ -899,7 +904,7 @@ class UrlbarInput {
   }
 
   get focused() {
-    return this.getAttribute("focused") == "true";
+    return this.document.activeElement == this.inputField;
   }
 
   get goButton() {
@@ -948,6 +953,16 @@ class UrlbarInput {
       return;
     }
     this.setAttribute("breakout-extend", "true");
+
+    // Enable the animation only after the first extend call to ensure it
+    // doesn't run when opening a new window.
+    if (!this.hasAttribute("breakout-extend-animate")) {
+      this.window.promiseDocumentFlushed(() => {
+        this.window.requestAnimationFrame(() => {
+          this.setAttribute("breakout-extend-animate", "true");
+        });
+      });
+    }
   }
 
   endLayoutExtend(force) {
@@ -1684,37 +1699,53 @@ class UrlbarInput {
   }
 
   _on_mousedown(event) {
-    if (event.currentTarget == this.inputField) {
-      this._preventClickSelectsAll = this.focused;
+    switch (event.currentTarget) {
+      case this.inputField:
+        this.startLayoutExtend();
+        this._preventClickSelectsAll = this.focused;
 
-      // The rest of this handler only cares about left clicks.
-      if (event.button != 0) {
-        return;
-      }
+        // The rest of this case only cares about left clicks.
+        if (event.button != 0) {
+          break;
+        }
 
-      if (event.detail == 2 && UrlbarPrefs.get("doubleClickSelectsAll")) {
-        this.editor.selectAll();
-        event.preventDefault();
-      } else if (this.openViewOnFocusForCurrentTab && !this.view.isOpen) {
-        this.startQuery({
-          allowAutofill: false,
-          event,
-        });
-      }
-      return;
-    }
+        if (event.detail == 2 && UrlbarPrefs.get("doubleClickSelectsAll")) {
+          this.editor.selectAll();
+          event.preventDefault();
+        } else if (this.openViewOnFocusForCurrentTab && !this.view.isOpen) {
+          this.startQuery({
+            allowAutofill: false,
+            event,
+          });
+        }
+        break;
+      case this.dropmarker:
+        if (event.button != 0) {
+          break;
+        }
 
-    if (event.currentTarget == this.dropmarker && event.button == 0) {
-      if (this.view.isOpen) {
-        this.view.close();
-      } else {
-        this.focus();
-        this.startQuery({
-          allowAutofill: false,
-          event,
-        });
-        this._maybeSelectAll();
-      }
+        if (this.view.isOpen) {
+          this.view.close();
+        } else {
+          this.focus();
+          this.startQuery({
+            allowAutofill: false,
+            event,
+          });
+          this._maybeSelectAll();
+        }
+        break;
+      case this.textbox:
+        this._mousedownOnUrlbarDescendant = true;
+        break;
+      case this.window:
+        // We collapse the Urlbar for any mousedowns outside of it.
+        if (this._mousedownOnUrlbarDescendant) {
+          this._mousedownOnUrlbarDescendant = false;
+          break;
+        }
+
+        this.endLayoutExtend(true);
     }
   }
 

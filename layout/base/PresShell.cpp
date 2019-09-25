@@ -2846,9 +2846,10 @@ void PresShell::SlotAssignmentWillChange(Element& aElement,
     return;
   }
 
-  // If the old slot is about to become empty, let layout know that it needs to
-  // do work.
-  if (aOldSlot && aOldSlot->AssignedNodes().Length() == 1) {
+  // If the old slot is about to become empty and show fallback, let layout know
+  // that it needs to do work.
+  if (aOldSlot && aOldSlot->AssignedNodes().Length() == 1 &&
+      aOldSlot->HasChildren()) {
     DestroyFramesForAndRestyle(aOldSlot);
   }
 
@@ -2859,7 +2860,7 @@ void PresShell::SlotAssignmentWillChange(Element& aElement,
   if (aNewSlot) {
     // If the new slot will stop showing fallback content, we need to reframe it
     // altogether.
-    if (aNewSlot->AssignedNodes().IsEmpty()) {
+    if (aNewSlot->AssignedNodes().IsEmpty() && aNewSlot->HasChildren()) {
       DestroyFramesForAndRestyle(aNewSlot);
       // Otherwise we just care about the element, but we need to ensure that
       // something takes care of traversing to the relevant slot, if needed.
