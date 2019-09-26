@@ -39,7 +39,7 @@ performance.navigation:
     expires: "2020-12-01"
 
 performance.navigation.time:
-  to_non_blank_paint:
+  non_blank_paint:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: TIME_TO_NON_BLANK_PAINT_MS
@@ -54,7 +54,7 @@ performance.navigation.time:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-  to_dom_interactive:
+  dom_interactive:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: TIME_TO_DOM_INTERACTIVE_MS
@@ -69,7 +69,7 @@ performance.navigation.time:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-  to_dom_content_loaded_start:
+  dom_content_loaded_start:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: TIME_TO_DOM_CONTENT_LOADED_START_MS
@@ -83,7 +83,7 @@ performance.navigation.time:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-  to_dom_content_loaded_end:
+  dom_content_loaded_end:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: TIME_TO_DOM_CONTENT_LOADED_END_MS
@@ -98,7 +98,7 @@ performance.navigation.time:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-  to_dom_complete:
+  dom_complete:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: TIME_TO_DOM_COMPLETE_MS
@@ -113,7 +113,7 @@ performance.navigation.time:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-  to_load_event_start:
+  load_event_start:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: TIME_TO_LOAD_EVENT_START_MS
@@ -142,7 +142,7 @@ performance.navigation.time:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-  to_response_start:
+  response_start:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: TIME_TO_RESPONSE_START_MS
@@ -157,8 +157,8 @@ performance.navigation.time:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-performance.navigation.gv:
-  page_load_progress:
+performance.navigation.page:
+  load_progress:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: GV_PAGE_LOAD_PROGRESS_MS
@@ -172,7 +172,7 @@ performance.navigation.gv:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-  page_load:
+  load:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: GV_PAGE_LOAD_MS
@@ -186,7 +186,7 @@ performance.navigation.gv:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-  page_reload:
+  reload:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: GV_PAGE_RELOAD_MS
@@ -230,8 +230,8 @@ performance.interaction:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-network:
-  cache_v2_hit_time:
+network.cache:
+  hit_time:
     type: timing_distribution
     time_unit: millisecond
     gecko_datapoint: NETWORK_CACHE_V2_HIT_TIME_MS
@@ -245,9 +245,9 @@ network:
       - telemetry-performance-dev@mozilla.com
     expires: "2020-12-01"
 
-  cache_size: <-- THIS is wrong - size can't be a timing distribution.
-    type: timing_distribution
-    time_unit: millisecond
+  size:
+    type: memory_distribution
+    memory_unit: megabyte
     gecko_datapoint: NETWORK_CACHE_SIZE
     description: |
       Cache size in megabytes keyed by cache capacity calculation type. Numbers are sampled periodically, every time 2GB of data is written to the cache.
