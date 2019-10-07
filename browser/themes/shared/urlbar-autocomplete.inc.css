@@ -8,8 +8,8 @@
 %define urlbarViewPadding 4px
 %define urlbarViewIconMarginEnd 8px
 %define urlbarViewFaviconOffset (@urlbarViewPadding@ + 16px /* type icon width */ + @urlbarViewIconMarginEnd@)
-%define urlbarViewInlineStartPadding (@urlbarBreakoutHorizontalExtend@ - 16px /* type icon width */ - @urlbarViewIconMarginEnd@ - 2px /* border */)
-%define urlbarViewHorizontalMargin 8px
+%define urlbarViewInlineStartPadding (@urlbarBreakoutHorizontalExtend@ - 16px /* type icon width */ - @urlbarViewIconMarginEnd@)
+%define urlbarViewHorizontalMargin 5px
 
 :root {
   --autocomplete-popup-background: var(--arrowpanel-background);
@@ -44,11 +44,14 @@
   /* Don't handle window drag events in case we are overlapping a toolbar */
   -moz-window-dragging: no-drag;
   text-shadow: none;
+  overflow: -moz-hidden-unscrollable;
 }
 
 .urlbarView.megabar {
   margin-inline: @urlbarViewHorizontalMargin@;
   width: calc(100% - 2 * @urlbarViewHorizontalMargin@);
+  /* Match urlbar-background's border. */
+  border-inline: 1px solid transparent;
 }
 
 .urlbarView:not([hidden]) {
@@ -68,6 +71,7 @@
   background: var(--autocomplete-popup-background);
   color: var(--autocomplete-popup-color);
   border-block: 1px solid var(--chrome-content-separator-color);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, .2);
 }
 
 #urlbar-contextual-tip {
@@ -262,14 +266,15 @@
 /* The tip button is a Photon default button when unfocused and a
    primary button in all other states. */
 .urlbarView-tip-button {
-  min-height: 32px;
+  min-height: 16px;
   padding: 8px;
   border: none;
   border-radius: 2px;
   font-size: 0.93em;
   color: inherit;
   background-color: var(--in-content-button-background);
-  min-width: 10em;
+  min-width: 8.75em;
+  text-align: center;
   flex-shrink: 0;
 }
 
@@ -393,7 +398,10 @@
 }
 
 #urlbar .search-panel-one-offs {
-  padding-inline: 12px;
+  padding-inline-start: 12px;
+  /* Make sure we can fit at least three buttons horizontally. */
+  min-width: 120px;
+  box-sizing: content-box;
 }
 
 #urlbar .search-panel-header {

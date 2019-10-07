@@ -78,7 +78,7 @@ var snapshotFormatters = {
     if (data.updateChannel) {
       $("updatechannel-box").textContent = data.updateChannel;
     }
-    if (AppConstants.MOZ_UPDATER) {
+    if (AppConstants.MOZ_UPDATER && AppConstants.platform != "android") {
       $("update-dir-box").textContent = Services.dirsvc.get(
         "UpdRootD",
         Ci.nsIFile
@@ -1489,11 +1489,11 @@ function setupEventListeners() {
     button = $("show-update-history-button");
     if (button) {
       button.addEventListener("click", function(event) {
-        let uri = "chrome://mozapps/content/update/history.xul";
-        let features =
-          "chrome,centerscreen,resizable=no,titlebar,toolbar=no," +
-          "dialog=yes,modal";
-        Services.ww.openWindow(window, uri, "Update:History", features, null);
+        window.docShell.rootTreeItem.domWindow.openDialog(
+          "chrome://mozapps/content/update/history.xul",
+          "Update:History",
+          "centerscreen,resizable=no,titlebar,modal"
+        );
       });
     }
   }

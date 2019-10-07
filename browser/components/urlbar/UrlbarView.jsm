@@ -236,6 +236,18 @@ class UrlbarView {
   }
 
   /**
+   * @returns {Element}
+   *   The currently selected element.
+   */
+  get selectedElement() {
+    if (!this.isOpen) {
+      return null;
+    }
+
+    return this._selectedElement;
+  }
+
+  /**
    * @returns {number}
    *   The number of visible results in the view.  Note that this may be larger
    *   than the number of results in the current query context since the view
@@ -263,6 +275,27 @@ class UrlbarView {
       element = this._getNextSelectableElement(element);
     }
     return sum;
+  }
+
+  /**
+   * @param {Element} element
+   *   An element in the view.
+   * @returns {UrlbarResult}
+   *   The result attached to parameter `element`, if `element` is a row or a
+   *   decendant of a row.
+   */
+  getResultFromElement(element) {
+    if (!this.isOpen) {
+      return null;
+    }
+
+    let row = this._getRowFromElement(element);
+
+    if (!row) {
+      return null;
+    }
+
+    return row.result;
   }
 
   /**
@@ -355,10 +388,6 @@ class UrlbarView {
 
     this.window.removeEventListener("resize", this);
 
-    this.window.removeEventListener("mousedown", this);
-    this.panel.removeEventListener("mousedown", this);
-    this.input.textbox.removeEventListener("mousedown", this);
-
     this.controller.notify(this.controller.NOTIFICATIONS.VIEW_CLOSE);
     if (this.contextualTip) {
       this.contextualTip.hide();
@@ -413,6 +442,10 @@ class UrlbarView {
           (trimmedValue[0] != UrlbarTokenizer.RESTRICT.SEARCH ||
             trimmedValue.length != 1)
       );
+
+      // The input field applies autofill on input, without waiting for results.
+      // Once we get results, we can ask it to correct wrong predictions.
+      this.input.maybeClearAutofillPlaceholder(queryContext.results[0]);
     }
 
     this._openPanel();
@@ -557,17 +590,12 @@ class UrlbarView {
 
       this._mainContainer.style.maxWidth = px(width);
     }
-
     this.panel.removeAttribute("hidden");
     this.input.inputField.setAttribute("aria-expanded", "true");
     this.input.dropmarker.setAttribute("open", "true");
 
     this.input.setAttribute("open", "true");
     this.input.startLayoutExtend();
-
-    this.window.addEventListener("mousedown", this);
-    this.panel.addEventListener("mousedown", this);
-    this.input.textbox.addEventListener("mousedown", this);
 
     this.window.addEventListener("resize", this);
     this._windowOuterWidth = this.window.outerWidth;
@@ -719,7 +747,7 @@ class UrlbarView {
       buttonSpacer.className = "urlbarView-tip-button-spacer";
       content.appendChild(buttonSpacer);
 
-      let tipButton = this._createElement("button");
+      let tipButton = this._createElement("span");
       tipButton.className = "urlbarView-tip-button";
       content.appendChild(tipButton);
       item._elements.set("tipButton", tipButton);
@@ -757,7 +785,8 @@ class UrlbarView {
 
     if (
       result.type == UrlbarUtils.RESULT_TYPE.SEARCH &&
-      !result.payload.keywordOffer
+      !result.payload.keywordOffer &&
+      !result.payload.inPrivateWindow
     ) {
       item.setAttribute("type", "search");
     } else if (result.type == UrlbarUtils.RESULT_TYPE.REMOTE_TAB) {
@@ -839,9 +868,23 @@ class UrlbarView {
         setURL = true;
         break;
       case UrlbarUtils.RESULT_TYPE.SEARCH:
-        action = UrlbarUtils.strings.formatStringFromName("searchWithEngine", [
-          result.payload.engine,
-        ]);
+        if (result.payload.inPrivateWindow) {
+          if (result.payload.isPrivateEngine) {
+            action = UrlbarUtils.strings.formatStringFromName(
+              "searchInPrivateWindowWithEngine",
+              [result.payload.engine]
+            );
+          } else {
+            action = UrlbarUtils.strings.GetStringFromName(
+              "searchInPrivateWindow"
+            );
+          }
+        } else {
+          action = UrlbarUtils.strings.formatStringFromName(
+            "searchWithEngine",
+            [result.payload.engine]
+          );
+        }
         break;
       case UrlbarUtils.RESULT_TYPE.KEYWORD:
         isVisitAction = result.payload.input.trim() == result.payload.keyword;
@@ -1097,6 +1140,24 @@ class UrlbarView {
     return selected;
   }
 
+  /**
+   * @param {Element} element
+   *   An element that is potentially a row or descendant of a row.
+   * @returns {Element}
+   *   The row containing `element`, or `element` itself if it is a row.
+   */
+  _getRowFromElement(element) {
+    if (!this.isOpen || !element) {
+      return null;
+    }
+
+    if (!element.classList.contains("urlbarView-row")) {
+      element = element.closest(".urlbarView-row");
+    }
+
+    return element;
+  }
+
   _setAccessibleFocus(item) {
     if (item) {
       this.input.inputField.setAttribute("aria-activedescendant", item.id);
@@ -1182,7 +1243,9 @@ class UrlbarView {
       let result = this._queryContext.results[i];
       if (
         result.type != UrlbarUtils.RESULT_TYPE.SEARCH ||
-        (!result.heuristic && !result.payload.suggestion)
+        (!result.heuristic &&
+          !result.payload.suggestion &&
+          (!result.payload.inPrivateWindow || result.payload.isPrivateEngine))
       ) {
         continue;
       }
@@ -1196,11 +1259,13 @@ class UrlbarView {
         delete result.payload.originalEngine;
       }
       let item = this._rows.children[i];
-      let action = item.querySelector(".urlbarView-action");
-      action.textContent = UrlbarUtils.strings.formatStringFromName(
-        "searchWithEngine",
-        [(engine && engine.name) || result.payload.engine]
-      );
+      if (!result.payload.inPrivateWindow) {
+        let action = item.querySelector(".urlbarView-action");
+        action.textContent = UrlbarUtils.strings.formatStringFromName(
+          "searchWithEngine",
+          [(engine && engine.name) || result.payload.engine]
+        );
+      }
       // If we just changed the engine from the original engine and it had an
       // icon, then make sure the result now uses the new engine's icon or
       // failing that the default icon.  If we changed it back to the original
@@ -1217,41 +1282,20 @@ class UrlbarView {
   }
 
   _on_mousedown(event) {
-    switch (event.currentTarget) {
-      case this.panel:
-      case this.input.textbox:
-        this._mousedownOnViewOrInput = true;
-        break;
-      case this.window:
-        // Close the view when clicking on toolbars and other UI pieces that might
-        // not automatically remove focus from the input.
-        if (this._mousedownOnViewOrInput) {
-          this._mousedownOnViewOrInput = false;
-          break;
-        }
-        // Respect the autohide preference for easier inspecting/debugging via
-        // the browser toolbox.
-        if (!UrlbarPrefs.get("ui.popup.disable_autohide")) {
-          this.close();
-        }
-        break;
-      case this._rows:
-        if (event.button == 2) {
-          // Ignore right clicks.
-          break;
-        }
-        let row = event.target;
-        while (!row.classList.contains("urlbarView-row")) {
-          row = row.parentNode;
-        }
-        this._selectElement(row, { updateInput: false });
-        this.controller.speculativeConnect(
-          this.selectedResult,
-          this._queryContext,
-          "mousedown"
-        );
-        break;
+    if (event.button == 2) {
+      // Ignore right clicks.
+      return;
     }
+    let row = event.target;
+    while (!row.classList.contains("urlbarView-row")) {
+      row = row.parentNode;
+    }
+    this._selectElement(row, { updateInput: false });
+    this.controller.speculativeConnect(
+      this.selectedResult,
+      this._queryContext,
+      "mousedown"
+    );
   }
 
   _on_mouseup(event) {
@@ -1259,12 +1303,7 @@ class UrlbarView {
       // Ignore right clicks.
       return;
     }
-
-    let row = event.target;
-    while (!row.classList.contains("urlbarView-row")) {
-      row = row.parentNode;
-    }
-    this.input.pickResult(row.result, event);
+    this.input.pickElement(event.target, event);
   }
 
   _on_overflow(event) {

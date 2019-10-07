@@ -47,6 +47,7 @@ use api::channel::{MsgSender, PayloadReceiverHelperMethods};
 use crate::batch::{AlphaBatchContainer, BatchKind, BatchFeatures, BatchTextures, BrushBatchKind, ClipBatchList};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
+use crate::composite::{CompositeState, CompositeTileSurface, CompositeTile};
 use crate::debug_colors;
 use crate::debug_render::{DebugItem, DebugRenderer};
 use crate::device::{DepthFunction, Device, GpuFrameId, Program, UploadMethod, Texture, PBO};
@@ -62,13 +63,14 @@ use crate::glyph_cache::GlyphCache;
 use crate::glyph_rasterizer::{GlyphFormat, GlyphRasterizer};
 use crate::gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use crate::gpu_cache::{GpuCacheDebugChunk, GpuCacheDebugCmd};
-use crate::gpu_types::{PrimitiveHeaderI, PrimitiveHeaderF, ScalingInstance, SvgFilterInstance, TransformData, ResolveInstanceData};
+use crate::gpu_types::{PrimitiveHeaderI, PrimitiveHeaderF, ScalingInstance, SvgFilterInstance, TransformData};
+use crate::gpu_types::{CompositeInstance, ResolveInstanceData};
 use crate::internal_types::{TextureSource, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceCacheError};
 use crate::internal_types::{CacheTextureId, DebugOutput, FastHashMap, FastHashSet, LayerIndex, RenderedDocument, ResultMsg};
 use crate::internal_types::{TextureCacheAllocationKind, TextureCacheUpdate, TextureUpdateList, TextureUpdateSource};
 use crate::internal_types::{RenderTargetInfo, SavedTargetIndex, Swizzle};
 use malloc_size_of::MallocSizeOfOps;
-use crate::picture::{RecordedDirtyRegion, TILE_SIZE_WIDTH, TILE_SIZE_HEIGHT};
+use crate::picture::{RecordedDirtyRegion, TILE_SIZE_LARGE, TILE_SIZE_SMALL};
 use crate::prim_store::DeferredResolve;
 use crate::profiler::{BackendProfileCounters, FrameProfileCounters, TimeProfileCounter,
                GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
@@ -223,6 +225,10 @@ const GPU_SAMPLER_TAG_TRANSPARENT: GpuProfileTag = GpuProfileTag {
 const GPU_TAG_SVG_FILTER: GpuProfileTag = GpuProfileTag {
     label: "SvgFilter",
     color: debug_colors::LEMONCHIFFON,
+};
+const GPU_TAG_COMPOSITE: GpuProfileTag = GpuProfileTag {
+    label: "Composite",
+    color: debug_colors::TOMATO,
 };
 
 /// The clear color used for the texture cache when the debug display is enabled.
@@ -796,6 +802,43 @@ pub(crate) mod desc {
             },
         ],
     };
+
+    pub const COMPOSITE: VertexDescriptor = VertexDescriptor {
+        vertex_attributes: &[
+            VertexAttribute {
+                name: "aPosition",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+        ],
+        instance_attributes: &[
+            VertexAttribute {
+                name: "aDeviceRect",
+                count: 4,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aDeviceClipRect",
+                count: 4,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aColor",
+                count: 4,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aLayer",
+                count: 1,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aZId",
+                count: 1,
+                kind: VertexAttributeKind::F32,
+            },
+        ],
+    };
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -811,6 +854,7 @@ pub(crate) enum VertexArrayKind {
     Gradient,
     Resolve,
     SvgFilter,
+    Composite,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -896,6 +940,34 @@ impl CpuProfile {
     }
 }
 
+/// Defines the configuration that the client is using to present results
+/// to the underlying device.
+#[derive(Debug, Copy, Clone)]
+pub enum PresentConfig {
+    /// In this mode, the device supports updating some number of dirty
+    /// regions since the last frame was drawn, which can provide significant
+    /// power savings.
+    PartialPresent {
+        /// The maximum number of dirty rects that are supported by the device.
+        max_dirty_rects: usize,
+    },
+}
+
+/// The selected partial present mode for a given frame.
+#[derive(Debug, Copy, Clone)]
+enum PartialPresentMode {
+    /// The device supports fewer dirty rects than the number of dirty rects
+    /// that WR produced. In this case, the WR dirty rects are union'ed into
+    /// a single dirty rect, that is provided to the caller.
+    Single {
+        dirty_rect: DeviceRect,
+    },
+    /// The device supports at least the same number of dirty rects as the
+    /// number of dirty rects produced by WR this frame. In this case, the
+    /// tile dirty rect is applied to the clip for each tile as it's drawn.
+    Multi,
+}
+
 /// A Texture that has been initialized by the `device` module and is ready to
 /// be used.
 struct ActiveTexture {
@@ -959,6 +1031,10 @@ impl TextureResolver {
                 None,
                 1,
             );
+        device.upload_texture_immediate(
+            &dummy_cache_texture,
+            &[0xff, 0xff, 0xff, 0xff],
+        );
 
         TextureResolver {
             texture_cache_map: FastHashMap::default(),
@@ -1068,6 +1144,11 @@ impl TextureResolver {
             TextureSource::Invalid => {
                 Swizzle::default()
             }
+            TextureSource::Dummy => {
+                let swizzle = Swizzle::default();
+                device.bind_texture(sampler, &self.dummy_cache_texture, swizzle);
+                swizzle
+            }
             TextureSource::PrevPassAlpha => {
                 let texture = match self.prev_pass_alpha {
                     Some(ref at) => &at.texture,
@@ -1129,6 +1210,9 @@ impl TextureResolver {
     fn resolve(&self, texture_id: &TextureSource) -> Option<(&Texture, Swizzle)> {
         match *texture_id {
             TextureSource::Invalid => None,
+            TextureSource::Dummy => {
+                Some((&self.dummy_cache_texture, Swizzle::default()))
+            }
             TextureSource::PrevPassAlpha => Some((
                 match self.prev_pass_alpha {
                     Some(ref at) => &at.texture,
@@ -1666,6 +1750,7 @@ pub struct RendererVAOs {
     gradient_vao: VAO,
     resolve_vao: VAO,
     svg_filter_vao: VAO,
+    composite_vao: VAO,
 }
 
 
@@ -1690,6 +1775,7 @@ pub struct Renderer {
 
     clear_color: Option<ColorF>,
     enable_clear_scissor: bool,
+    enable_picture_caching: bool,
     enable_advanced_blend_barriers: bool,
 
     debug: LazyInitializedDebugRenderer,
@@ -1781,6 +1867,14 @@ pub struct Renderer {
     read_fbo: FBOId,
     #[cfg(feature = "replay")]
     owned_external_images: FastHashMap<(ExternalImageId, u8), ExternalTexture>,
+
+    /// The current presentation config, affecting how WR composites into the
+    /// final scene.
+    present_config: Option<PresentConfig>,
+
+    /// If true, partial present state has been reset and everything needs to
+    /// be drawn on the next render.
+    force_redraw: bool,
 }
 
 #[derive(Debug)]
@@ -2012,6 +2106,7 @@ impl Renderer {
         let gradient_vao = device.create_vao_with_new_instances(&desc::GRADIENT, &prim_vao);
         let resolve_vao = device.create_vao_with_new_instances(&desc::RESOLVE, &prim_vao);
         let svg_filter_vao = device.create_vao_with_new_instances(&desc::SVG_FILTER, &prim_vao);
+        let composite_vao = device.create_vao_with_new_instances(&desc::COMPOSITE, &prim_vao);
         let texture_cache_upload_pbo = device.create_pbo();
 
         let texture_resolver = TextureResolver::new(&mut device);
@@ -2051,6 +2146,7 @@ impl Renderer {
         };
         info!("WR {:?}", config);
 
+        let present_config = options.present_config.take();
         let device_pixel_ratio = options.device_pixel_ratio;
         let debug_flags = options.debug_flags;
         let payload_rx_for_backend = payload_rx.to_mpsc_receiver();
@@ -2150,7 +2246,8 @@ impl Renderer {
             }
 
             let picture_tile_sizes = &[
-                DeviceIntSize::new(TILE_SIZE_WIDTH, TILE_SIZE_HEIGHT),
+                TILE_SIZE_LARGE,
+                TILE_SIZE_SMALL,
             ];
 
             let texture_cache = TextureCache::new(
@@ -2236,6 +2333,7 @@ impl Renderer {
             clear_color: options.clear_color,
             enable_clear_scissor: options.enable_clear_scissor,
             enable_advanced_blend_barriers: !ext_blend_equation_advanced_coherent,
+            enable_picture_caching: options.enable_picture_caching,
             last_time: 0,
             gpu_profile,
             vaos: RendererVAOs {
@@ -2248,6 +2346,7 @@ impl Renderer {
                 resolve_vao,
                 line_vao,
                 svg_filter_vao,
+                composite_vao,
             },
             transforms_texture,
             prim_header_i_texture,
@@ -2280,6 +2379,8 @@ impl Renderer {
             cursor_position: DeviceIntPoint::zero(),
             shared_texture_cache_cleared: false,
             documents_seen: FastHashSet::default(),
+            present_config,
+            force_redraw: true,
         };
 
         // We initially set the flags to default and then now call set_debug_flags
@@ -2750,6 +2851,12 @@ impl Renderer {
         self.slow_frame_indicator.changed();
     }
 
+    /// Reset the current partial present state. This forces the entire framebuffer
+    /// to be refreshed next time `render` is called.
+    pub fn force_redraw(&mut self) {
+        self.force_redraw = true;
+    }
+
     /// Renders the current frame.
     ///
     /// A Frame is supplied by calling [`generate_frame()`][webrender_api::Transaction::generate_frame].
@@ -2862,7 +2969,7 @@ impl Renderer {
                     frame,
                     device_size,
                     cpu_frame_id,
-                    &mut results.stats,
+                    &mut results,
                     doc_index == 0,
                 );
 
@@ -2876,8 +2983,6 @@ impl Renderer {
                 let dirty_regions =
                     mem::replace(&mut frame.recorded_dirty_regions, Vec::new());
                 results.recorded_dirty_regions.extend(dirty_regions);
-                let dirty_rects = mem::replace(&mut frame.dirty_rects, Vec::new());
-                results.dirty_rects.extend(dirty_rects);
 
                 // If we're the last document, don't call end_pass here, because we'll
                 // be moving on to drawing the debug overlays. See the comment above
@@ -3772,6 +3877,223 @@ impl Renderer {
         }
     }
 
+    /// Draw a list of tiles to the framebuffer
+    fn draw_tile_list<'a, I: Iterator<Item = &'a CompositeTile>>(
+        &mut self,
+        tiles_iter: I,
+        partial_present_mode: Option<PartialPresentMode>,
+        stats: &mut RendererStats,
+    ) {
+        let mut current_textures = BatchTextures::no_texture();
+        let mut instances = Vec::new();
+
+        for tile in tiles_iter {
+            // Work out the draw params based on the tile surface
+            let (texture, layer, color) = match tile.surface {
+                CompositeTileSurface::Color { color } => {
+                    (TextureSource::Dummy, 0.0, color)
+                }
+                CompositeTileSurface::Clear => {
+                    (TextureSource::Dummy, 0.0, ColorF::BLACK)
+                }
+                CompositeTileSurface::Texture { texture_id, texture_layer } => {
+                    (texture_id, texture_layer as f32, ColorF::WHITE)
+                }
+            };
+            let textures = BatchTextures::color(texture);
+
+            // Determine a clip rect to apply to this tile, depending on what
+            // the partial present mode is.
+            let partial_clip_rect = match partial_present_mode {
+                Some(PartialPresentMode::Single { dirty_rect }) => dirty_rect,
+                Some(PartialPresentMode::Multi) => tile.dirty_rect,
+                None => tile.rect,
+            };
+
+            let clip_rect = match partial_clip_rect.intersection(&tile.clip_rect) {
+                Some(rect) => rect,
+                None => continue,
+            };
+
+            // Flush this batch if the textures aren't compatible
+            if !current_textures.is_compatible_with(&textures) {
+                self.draw_instanced_batch(
+                    &instances,
+                    VertexArrayKind::Composite,
+                    &current_textures,
+                    stats,
+                );
+                instances.clear();
+            }
+            current_textures = textures;
+
+            // Create the instance and add to current batch
+            let instance = CompositeInstance::new(
+                tile.rect,
+                clip_rect,
+                color.premultiplied(),
+                layer,
+                tile.z_id,
+            );
+            instances.push(instance);
+        }
+
+        // Flush the last batch
+        if !instances.is_empty() {
+            self.draw_instanced_batch(
+                &instances,
+                VertexArrayKind::Composite,
+                &current_textures,
+                stats,
+            );
+        }
+    }
+
+    /// Composite picture cache tiles into the framebuffer. This is currently
+    /// the only way that picture cache tiles get drawn. In future, the tiles
+    /// will often be handed to the OS compositor, and this method will be
+    /// rarely used.
+    fn composite(
+        &mut self,
+        composite_state: &CompositeState,
+        clear_framebuffer: bool,
+        draw_target: DrawTarget,
+        projection: &default::Transform3D<f32>,
+        results: &mut RenderResults,
+    ) {
+        let _gm = self.gpu_profile.start_marker("framebuffer");
+        let _timer = self.gpu_profile.start_timer(GPU_TAG_COMPOSITE);
+
+        self.device.bind_draw_target(draw_target);
+        self.device.enable_depth();
+        self.device.enable_depth_write();
+
+        // Determine the partial present mode for this frame, which is used during
+        // framebuffer clears and calculating the clip rect for each tile that is drawn.
+        let mut partial_present_mode = None;
+
+        if let Some(PresentConfig::PartialPresent { max_dirty_rects }) = self.present_config {
+            // We can only use partial present if we have valid dirty rects and the
+            // client hasn't reset partial present state since last frame.
+            if composite_state.dirty_rects_are_valid && !self.force_redraw {
+                let mut dirty_rect_count = 0;
+                let mut combined_dirty_rect = DeviceRect::zero();
+
+                // Work out how many dirty rects WR produced, and if that's more than
+                // what the device supports.
+                for tile in composite_state.opaque_tiles.iter().chain(composite_state.alpha_tiles.iter()) {
+                    if !tile.dirty_rect.is_empty() {
+                        dirty_rect_count += 1;
+                        results.dirty_rects.push(tile.dirty_rect.to_i32());
+                        combined_dirty_rect = combined_dirty_rect.union(&tile.dirty_rect);
+                    }
+                }
+
+                let mode = if dirty_rect_count > max_dirty_rects {
+                    // In this case, WR produced more dirty rects than what the device supports.
+                    // As a simple way to handle this, just union all the dirty rects into a
+                    // single dirty rect.
+                    // TODO(gw): In future, maybe we can handle this case better by trying to
+                    //           coalesce dirty rects into a smaller number rather than just
+                    //           falling back to a single dirty rect.
+                    let combined_dirty_rect = combined_dirty_rect.round();
+                    results.dirty_rects.clear();
+                    results.dirty_rects.push(combined_dirty_rect.to_i32());
+                    PartialPresentMode::Single {
+                        dirty_rect: combined_dirty_rect,
+                    }
+                } else {
+                    PartialPresentMode::Multi
+                };
+
+                partial_present_mode = Some(mode);
+            }
+
+            self.force_redraw = false;
+        }
+
+        // Clear the framebuffer, if required
+        if clear_framebuffer {
+            let clear_color = self.clear_color.map(|color| color.to_array());
+
+            match partial_present_mode {
+                Some(PartialPresentMode::Single { dirty_rect }) => {
+                    // We have a single dirty rect, so clear only that
+                    self.device.clear_target(clear_color,
+                                             Some(1.0),
+                                             Some(draw_target.to_framebuffer_rect(dirty_rect.to_i32())));
+                }
+                Some(PartialPresentMode::Multi) => {
+                    // We have a dirty rect per tile, so clear each of them
+                    let opaque_iter = composite_state.opaque_tiles.iter();
+                    let clear_iter = composite_state.clear_tiles.iter();
+                    let alpha_iter = composite_state.alpha_tiles.iter();
+
+                    for tile in opaque_iter.chain(clear_iter.chain(alpha_iter)) {
+                        if !tile.dirty_rect.is_empty() {
+                            self.device.clear_target(clear_color,
+                                                     Some(1.0),
+                                                     Some(draw_target.to_framebuffer_rect(tile.dirty_rect.to_i32())));
+                        }
+                    }
+                }
+                None => {
+                    // Partial present is disabled, so clear the entire framebuffer
+                    self.device.clear_target(clear_color,
+                                             Some(1.0),
+                                             None);
+                }
+            }
+        }
+
+        self.shaders.borrow_mut().composite.bind(
+            &mut self.device,
+            &projection,
+            &mut self.renderer_errors
+        );
+
+        // Draw opaque tiles first, front-to-back to get maxmum
+        // z-reject efficiency.
+        if !composite_state.opaque_tiles.is_empty() {
+            let opaque_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_OPAQUE);
+            self.device.enable_depth_write();
+            self.set_blend(false, FramebufferKind::Main);
+            self.draw_tile_list(
+                composite_state.opaque_tiles.iter().rev(),
+                partial_present_mode,
+                &mut results.stats,
+            );
+            self.gpu_profile.finish_sampler(opaque_sampler);
+        }
+
+        if !composite_state.clear_tiles.is_empty() {
+            let transparent_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
+            self.device.disable_depth_write();
+            self.set_blend(true, FramebufferKind::Main);
+            self.device.set_blend_mode_premultiplied_dest_out();
+            self.draw_tile_list(
+                composite_state.clear_tiles.iter(),
+                partial_present_mode,
+                &mut results.stats,
+            );
+            self.gpu_profile.finish_sampler(transparent_sampler);
+        }
+
+        // Draw alpha tiles
+        if !composite_state.alpha_tiles.is_empty() {
+            let transparent_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
+            self.device.disable_depth_write();
+            self.set_blend(true, FramebufferKind::Main);
+            self.set_blend_mode_premultiplied_alpha(FramebufferKind::Main);
+            self.draw_tile_list(
+                composite_state.alpha_tiles.iter(),
+                partial_present_mode,
+                &mut results.stats,
+            );
+            self.gpu_profile.finish_sampler(transparent_sampler);
+        }
+    }
+
     fn draw_color_target(
         &mut self,
         draw_target: DrawTarget,
@@ -4521,7 +4843,7 @@ impl Renderer {
         frame: &mut Frame,
         device_size: Option<DeviceIntSize>,
         frame_id: GpuFrameId,
-        stats: &mut RendererStats,
+        results: &mut RenderResults,
         clear_framebuffer: bool,
     ) {
         // These markers seem to crash a lot on Android, see bug 1559834
@@ -4557,7 +4879,7 @@ impl Renderer {
             match pass.kind {
                 RenderPassKind::MainFramebuffer { ref main_target, .. } => {
                     if let Some(device_size) = device_size {
-                        stats.color_target_count += 1;
+                        results.stats.color_target_count += 1;
 
                         let offset = frame.content_origin.to_f32();
                         let size = frame.device_rect.size.to_f32();
@@ -4578,25 +4900,28 @@ impl Renderer {
                             rect: fb_rect,
                             total_size: device_size * fb_scale,
                         };
-                        if clear_framebuffer {
-                            self.device.bind_draw_target(draw_target);
-                            self.device.enable_depth_write();
-                            self.device.clear_target(self.clear_color.map(|color| color.to_array()),
-                                                     Some(1.0),
-                                                     None);
-                        }
 
-                        self.draw_color_target(
-                            draw_target,
-                            main_target,
-                            frame.content_origin,
-                            None,
-                            None,
-                            &frame.render_tasks,
-                            &projection,
-                            frame_id,
-                            stats,
-                        );
+                        if self.enable_picture_caching {
+                            self.composite(
+                                &frame.composite_state,
+                                clear_framebuffer,
+                                draw_target,
+                                &projection,
+                                results,
+                            );
+                        } else {
+                            self.draw_color_target(
+                                draw_target,
+                                main_target,
+                                frame.content_origin,
+                                None,
+                                None,
+                                &frame.render_tasks,
+                                &projection,
+                                frame_id,
+                                &mut results.stats,
+                            );
+                        }
                     }
                 }
                 RenderPassKind::OffScreen {
@@ -4618,13 +4943,13 @@ impl Renderer {
                                 target_index,
                                 target,
                                 &frame.render_tasks,
-                                stats,
+                                &mut results.stats,
                             );
                         }
 
                         // Draw picture caching tiles for this pass.
                         for picture_target in picture_cache {
-                            stats.color_target_count += 1;
+                            results.stats.color_target_count += 1;
 
                             let (texture, _) = self.texture_resolver
                                 .resolve(&picture_target.texture)
@@ -4650,13 +4975,13 @@ impl Renderer {
                                 frame.content_origin,
                                 &projection,
                                 &frame.render_tasks,
-                                stats,
+                                &mut results.stats,
                             );
                         }
                     }
 
                     for (target_index, target) in alpha.targets.iter().enumerate() {
-                        stats.alpha_target_count += 1;
+                        results.stats.alpha_target_count += 1;
                         let draw_target = DrawTarget::from_texture(
                             &alpha_tex.as_ref().unwrap().texture,
                             target_index,
@@ -4677,12 +5002,12 @@ impl Renderer {
                             target,
                             &projection,
                             &frame.render_tasks,
-                            stats,
+                            &mut results.stats,
                         );
                     }
 
                     for (target_index, target) in color.targets.iter().enumerate() {
-                        stats.color_target_count += 1;
+                        results.stats.color_target_count += 1;
                         let draw_target = DrawTarget::from_texture(
                             &color_tex.as_ref().unwrap().texture,
                             target_index,
@@ -4713,7 +5038,7 @@ impl Renderer {
                             &frame.render_tasks,
                             &projection,
                             frame_id,
-                            stats,
+                            &mut results.stats,
                         );
                     }
 
@@ -4856,22 +5181,19 @@ impl Renderer {
 
         for item in items {
             match item {
-                DebugItem::Rect { rect, color } => {
-                    let inner_color = color.scale_alpha(0.5).into();
-                    let outer_color = (*color).into();
-
+                DebugItem::Rect { rect, outer_color, inner_color } => {
                     debug_renderer.add_quad(
                         rect.origin.x,
                         rect.origin.y,
                         rect.origin.x + rect.size.width,
                         rect.origin.y + rect.size.height,
-                        inner_color,
-                        inner_color,
+                        (*inner_color).into(),
+                        (*inner_color).into(),
                     );
 
                     debug_renderer.add_rect(
                         &rect.to_i32(),
-                        outer_color,
+                        (*outer_color).into(),
                     );
                 }
                 DebugItem::Text { ref msg, position, color } => {
@@ -5247,6 +5569,7 @@ impl Renderer {
         self.device.delete_vao(self.vaos.border_vao);
         self.device.delete_vao(self.vaos.scale_vao);
         self.device.delete_vao(self.vaos.svg_filter_vao);
+        self.device.delete_vao(self.vaos.composite_vao);
 
         self.debug.deinit(&mut self.device);
 
@@ -5546,6 +5869,8 @@ pub struct RendererOptions {
     pub start_debug_server: bool,
     /// Output the source of the shader with the given name.
     pub dump_shader_source: Option<String>,
+    /// An optional presentation config for compositor integration.
+    pub present_config: Option<PresentConfig>,
 }
 
 impl Default for RendererOptions {
@@ -5597,6 +5922,7 @@ impl Default for RendererOptions {
             // needed.
             start_debug_server: true,
             dump_shader_source: None,
+            present_config: None,
         }
     }
 }
@@ -6099,6 +6425,7 @@ fn get_vao<'a>(vertex_array_kind: VertexArrayKind,
         VertexArrayKind::Gradient => &vaos.gradient_vao,
         VertexArrayKind::Resolve => &vaos.resolve_vao,
         VertexArrayKind::SvgFilter => &vaos.svg_filter_vao,
+        VertexArrayKind::Composite => &vaos.composite_vao,
     }
 }
 #[derive(Clone, Copy, PartialEq)]

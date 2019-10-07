@@ -6,7 +6,7 @@
 #define MEDIAENGINE_H_
 
 #include "DOMMediaStream.h"
-#include "MediaStreamGraph.h"
+#include "MediaTrackGraph.h"
 #include "MediaTrackConstraints.h"
 #include "mozilla/dom/MediaStreamTrackBinding.h"
 #include "mozilla/dom/VideoStreamTrack.h"
@@ -30,8 +30,7 @@ enum MediaSinkEnum {
 
 enum { kVideoTrack = 1, kAudioTrack = 2, kTrackCount };
 
-class MediaEngine : public DeviceChangeNotifier,
-                    public DeviceChangeCallback {
+class MediaEngine : public DeviceChangeNotifier, public DeviceChangeCallback {
  public:
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(MediaEngine)
   NS_DECL_OWNINGTHREAD

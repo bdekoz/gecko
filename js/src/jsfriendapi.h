@@ -173,9 +173,9 @@ enum {
   JS_TELEMETRY_GC_TIME_BETWEEN_S,
   JS_TELEMETRY_GC_TIME_BETWEEN_SLICES_MS,
   JS_TELEMETRY_GC_SLICE_COUNT,
+  JS_TELEMETRY_GC_EFFECTIVENESS,
   JS_TELEMETRY_PRIVILEGED_PARSER_COMPILE_LAZY_AFTER_MS,
   JS_TELEMETRY_WEB_PARSER_COMPILE_LAZY_AFTER_MS,
-  JS_TELEMETRY_DEPRECATED_ARRAY_GENERICS,
   JS_TELEMETRY_END
 };
 
@@ -199,9 +199,9 @@ typedef void (*JSSetUseCounterCallback)(JSObject* obj, JSUseCounter counter);
 extern JS_FRIEND_API void JS_SetSetUseCounterCallback(
     JSContext* cx, JSSetUseCounterCallback callback);
 
-extern JS_FRIEND_API void JS_ReportFirstCompileTime(JS::HandleScript script,
-                                                    mozilla::TimeDuration& parse,
-                                                    mozilla::TimeDuration& emit);
+extern JS_FRIEND_API void JS_ReportFirstCompileTime(
+    JS::HandleScript script, mozilla::TimeDuration& parse,
+    mozilla::TimeDuration& emit);
 
 extern JS_FRIEND_API JSPrincipals* JS_GetScriptPrincipals(JSScript* script);
 

@@ -20,6 +20,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   UrlbarController: "resource:///modules/UrlbarController.jsm",
   UrlbarEventBufferer: "resource:///modules/UrlbarEventBufferer.jsm",
   UrlbarPrefs: "resource:///modules/UrlbarPrefs.jsm",
+  UrlbarProvidersManager: "resource:///modules/UrlbarProvidersManager.jsm",
   UrlbarQueryContext: "resource:///modules/UrlbarUtils.jsm",
   UrlbarTokenizer: "resource:///modules/UrlbarTokenizer.jsm",
   UrlbarUtils: "resource:///modules/UrlbarUtils.jsm",
@@ -48,9 +49,6 @@ class UrlbarInput {
    *   The initial options for UrlbarInput.
    * @param {object} options.textbox
    *   The <textbox> element.
-   * @param {UrlbarController} [options.controller]
-   *   Optional fake controller to override the built-in UrlbarController.
-   *   Intended for use in unit tests only.
    */
   constructor(options = {}) {
     this.textbox = options.textbox;
@@ -88,12 +86,10 @@ class UrlbarInput {
       this.textbox.parentNode.classList.add("megabar");
     }
 
-    this.controller =
-      options.controller ||
-      new UrlbarController({
-        browserWindow: this.window,
-        eventTelemetryCategory: options.eventTelemetryCategory,
-      });
+    this.controller = new UrlbarController({
+      browserWindow: this.window,
+      eventTelemetryCategory: options.eventTelemetryCategory,
+    });
     this.controller.setInput(this);
     this.view = new UrlbarView(this);
     this.valueIsTyped = false;
@@ -180,7 +176,6 @@ class UrlbarInput {
     this.eventBufferer = new UrlbarEventBufferer(this);
 
     this._inputFieldEvents = [
-      "click",
       "compositionstart",
       "compositionend",
       "contextmenu",
@@ -192,7 +187,6 @@ class UrlbarInput {
       "input",
       "keydown",
       "keyup",
-      "mousedown",
       "mouseover",
       "overflow",
       "underflow",
@@ -205,9 +199,9 @@ class UrlbarInput {
     }
 
     this.dropmarker.addEventListener("mousedown", this);
-
     this.window.addEventListener("mousedown", this);
     this.textbox.addEventListener("mousedown", this);
+    this._inputContainer.addEventListener("click", this);
 
     // This is used to detect commands launched from the panel, to avoid
     // recording abandonment events when the command causes a blur event.
@@ -242,6 +236,7 @@ class UrlbarInput {
     this.dropmarker.removeEventListener("mousedown", this);
     this.window.removeEventListener("mousedown", this);
     this.textbox.removeEventListener("mousedown", this);
+    this._inputContainer.removeEventListener("click", this);
 
     this.view.panel.remove();
     this.endLayoutExtend(true);
@@ -269,6 +264,8 @@ class UrlbarInput {
 
     Services.prefs.removeObserver("browser.urlbar.openViewOnFocus", this);
 
+    this.controller.uninit();
+
     delete this.document;
     delete this.window;
     delete this.eventBufferer;
@@ -278,6 +275,7 @@ class UrlbarInput {
     delete this.controller;
     delete this.textbox;
     delete this.inputField;
+    delete this._layoutBreakoutUpdateKey;
   }
 
   /**
@@ -407,16 +405,23 @@ class UrlbarInput {
       }
     }
 
-    // Use the selected result if we have one; this is usually the case
+    // Use the selected element if we have one; this is usually the case
     // when the view is open.
-    let result = this.view.selectedResult;
-    if (!selectedOneOff && result) {
-      this.pickResult(result, event);
+    let element = this.view.selectedElement;
+    let result = this.view.getResultFromElement(element);
+    let selectedPrivateResult =
+      result &&
+      result.type == UrlbarUtils.RESULT_TYPE.SEARCH &&
+      result.payload.inPrivateWindow;
+    let selectedPrivateEngineResult =
+      selectedPrivateResult && result.payload.isPrivateEngine;
+    if (element && (!selectedOneOff || selectedPrivateEngineResult)) {
+      this.pickElement(element, event);
       return;
     }
 
     let url;
-    let selType = this.controller.engagementEvent.typeFromResult(result);
+    let selType = this.controller.engagementEvent.typeFromElement(element);
     let numChars = this.value.length;
     if (selectedOneOff) {
       selType = "oneoff";
@@ -449,6 +454,10 @@ class UrlbarInput {
     );
 
     let where = openWhere || this._whereToOpen(event);
+    if (selectedPrivateResult) {
+      where = "window";
+      openParams.private = true;
+    }
     openParams.allowInheritPrincipal = false;
     url = this._maybeCanonizeURL(event, url) || url.trim();
 
@@ -489,13 +498,17 @@ class UrlbarInput {
   }
 
   /**
-   * Called by the view when a result is picked.
+   * Called by the view when an element is picked.
    *
-   * @param {UrlbarResult} result The result that was picked.
-   * @param {Event} event The event that picked the result.
+   * @param {Element} element The element that was picked.
+   * @param {Event} event The event that picked the element.
    */
-  pickResult(result, event) {
+  pickElement(element, event) {
     let originalUntrimmedValue = this.untrimmedValue;
+    let result = this.view.getResultFromElement(element);
+    if (!result) {
+      return;
+    }
     let isCanonized = this.setValueFromResult(result, event);
     let where = this._whereToOpen(event);
     let openParams = {
@@ -638,12 +651,41 @@ class UrlbarInput {
           }
         }
 
+        if (result.payload.inPrivateWindow) {
+          where = "window";
+          openParams.private = true;
+        }
+
         const actionDetails = {
           isSuggestion: !!result.payload.suggestion,
           alias: result.payload.keyword,
         };
         const engine = Services.search.getEngineByName(result.payload.engine);
         this._recordSearch(engine, event, actionDetails);
+        break;
+      }
+      case UrlbarUtils.RESULT_TYPE.TIP: {
+        let helpPicked = element.classList.contains("urlbarView-tip-help");
+        if (helpPicked) {
+          url = result.payload.helpUrl;
+        }
+        if (!url) {
+          this.handleRevert();
+          this.controller.engagementEvent.record(event, {
+            numChars: this._lastSearchString.length,
+            selIndex,
+            selType: "tip",
+          });
+          let provider = UrlbarProvidersManager.getProvider(
+            result.providerName
+          );
+          if (!provider) {
+            Cu.reportError(`Provider not found: ${result.providerName}`);
+            return;
+          }
+          provider.pickResult(result, { helpPicked });
+          return;
+        }
         break;
       }
       case UrlbarUtils.RESULT_TYPE.OMNIBOX: {
@@ -685,7 +727,7 @@ class UrlbarInput {
     this.controller.engagementEvent.record(event, {
       numChars: this._lastSearchString.length,
       selIndex,
-      selType: this.controller.engagementEvent.typeFromResult(result),
+      selType: this.controller.engagementEvent.typeFromElement(element),
     });
 
     this._loadURL(url, where, openParams, {
@@ -784,6 +826,25 @@ class UrlbarInput {
   }
 
   /**
+   * Invoked by the view when the first result is received.
+   * To prevent selection flickering, we apply autofill on input through a
+   * placeholder, without waiting for results.
+   * But, if the first result is not an autofill one, the autofill prediction
+   * was wrong and we should restore the original user typed string.
+   * @param {UrlbarResult} firstResult The first result received.
+   */
+  maybeClearAutofillPlaceholder(firstResult) {
+    if (
+      this._autofillPlaceholder &&
+      !firstResult.autofill &&
+      // Avoid clobbering added spaces (for token aliases, for example).
+      !this.value.endsWith(" ")
+    ) {
+      this._setValue(this.window.gBrowser.userTypedValue, false);
+    }
+  }
+
+  /**
    * Starts a query based on the current input value.
    *
    * @param {boolean} [options.allowAutofill]
@@ -838,7 +899,6 @@ class UrlbarInput {
         allowAutofill,
         isPrivate: this.isPrivate,
         maxResults: UrlbarPrefs.get("maxRichResults"),
-        muxer: "UnifiedComplete",
         searchString,
         userContextId: this.window.gBrowser.selectedBrowser.getAttribute(
           "usercontextid"
@@ -925,11 +985,12 @@ class UrlbarInput {
 
   get openViewOnFocusForCurrentTab() {
     return (
-      this._openViewOnFocus &&
-      !["about:newtab", "about:home"].includes(
-        this.window.gBrowser.currentURI.spec
-      ) &&
-      !this.isPrivate
+      this._openViewOnFocusAndSearchString ||
+      (this._openViewOnFocus &&
+        !["about:newtab", "about:home"].includes(
+          this.window.gBrowser.currentURI.spec
+        ) &&
+        !this.isPrivate)
     );
   }
 
@@ -938,6 +999,11 @@ class UrlbarInput {
       return;
     }
     await this._updateLayoutBreakoutDimensions();
+    if (!this.textbox) {
+      // We may have been uninitialized while waiting for
+      // _updateLayoutBreakoutDimensions.
+      return;
+    }
     this.startLayoutExtend();
   }
 
@@ -945,20 +1011,37 @@ class UrlbarInput {
     if (
       !this.hasAttribute("breakout") ||
       this.hasAttribute("breakout-extend") ||
+      // Avoid extending when the user is copying a part of the text, provided
+      // the view is not open, otherwise it may be the autofill selection.
+      (this.selectionStart != this.selectionEnd && !this.view.isOpen) ||
       !(
-        (this.focused && !this.textbox.classList.contains("hidden-focus")) ||
+        (this.getAttribute("focused") == "true" &&
+          !this.textbox.classList.contains("hidden-focus")) ||
         this.view.isOpen
       )
     ) {
       return;
     }
+
+    if (UrlbarPrefs.get("disableExtendForTests")) {
+      this.setAttribute("breakout-extend-disabled", "true");
+      return;
+    }
+    this.removeAttribute("breakout-extend-disabled");
+
     this.setAttribute("breakout-extend", "true");
 
     // Enable the animation only after the first extend call to ensure it
     // doesn't run when opening a new window.
     if (!this.hasAttribute("breakout-extend-animate")) {
       this.window.promiseDocumentFlushed(() => {
+        if (!this.window) {
+          return;
+        }
         this.window.requestAnimationFrame(() => {
+          if (!this.textbox) {
+            return;
+          }
           this.setAttribute("breakout-extend-animate", "true");
         });
       });
@@ -970,7 +1053,8 @@ class UrlbarInput {
       !this.hasAttribute("breakout-extend") ||
       (!force &&
         (this.view.isOpen ||
-          (this.focused && !this.textbox.classList.contains("hidden-focus"))))
+          (this.getAttribute("focused") == "true" &&
+            !this.textbox.classList.contains("hidden-focus"))))
     ) {
       return;
     }
@@ -985,6 +1069,14 @@ class UrlbarInput {
 
   // Private methods below.
 
+  get _openViewOnFocusAndSearchString() {
+    return (
+      this.megabar &&
+      this.value &&
+      this.getAttribute("pageproxystate") != "valid"
+    );
+  }
+
   async _updateLayoutBreakoutDimensions() {
     // When this method gets called a second time before the first call
     // finishes, we need to disregard the first one.
@@ -996,6 +1088,11 @@ class UrlbarInput {
 
     await this.window.promiseDocumentFlushed(() => {});
     await new Promise(resolve => {
+      if (!this.window) {
+        // We may have been uninitialized while waiting for layout.
+        resolve();
+        return;
+      }
       this.window.requestAnimationFrame(() => {
         if (this._layoutBreakoutUpdateKey != updateKey) {
           return;
@@ -1667,7 +1764,13 @@ class UrlbarInput {
   }
 
   _on_click(event) {
-    this._maybeSelectAll();
+    if (
+      event.target == this.inputField ||
+      event.target == this._inputContainer
+    ) {
+      this.startLayoutExtend();
+      this._maybeSelectAll();
+    }
   }
 
   _on_contextmenu(event) {
@@ -1683,7 +1786,13 @@ class UrlbarInput {
 
   _on_focus(event) {
     this.setAttribute("focused", "true");
-    this.startLayoutExtend();
+
+    // We handle mouse-based expansion events separately in _on_click.
+    if (this._focusedViaMousedown) {
+      this._focusedViaMousedown = false;
+    } else {
+      this.startLayoutExtend();
+    }
 
     this._updateUrlTooltip();
     this.formatValue();
@@ -1700,9 +1809,22 @@ class UrlbarInput {
 
   _on_mousedown(event) {
     switch (event.currentTarget) {
-      case this.inputField:
-        this.startLayoutExtend();
+      case this.textbox:
+        this._mousedownOnUrlbarDescendant = true;
+
+        if (
+          event.target != this.inputField &&
+          event.target != this._inputContainer
+        ) {
+          break;
+        }
+
+        this._focusedViaMousedown = !this.focused;
         this._preventClickSelectsAll = this.focused;
+
+        if (event.target == this._inputContainer) {
+          this.focus();
+        }
 
         // The rest of this case only cares about left clicks.
         if (event.button != 0) {
@@ -1735,16 +1857,21 @@ class UrlbarInput {
           this._maybeSelectAll();
         }
         break;
-      case this.textbox:
-        this._mousedownOnUrlbarDescendant = true;
-        break;
       case this.window:
-        // We collapse the Urlbar for any mousedowns outside of it.
         if (this._mousedownOnUrlbarDescendant) {
           this._mousedownOnUrlbarDescendant = false;
           break;
         }
 
+        // Close the view when clicking on toolbars and other UI pieces that might
+        // not automatically remove focus from the input.
+        // Respect the autohide preference for easier inspecting/debugging via
+        // the browser toolbox.
+        if (!UrlbarPrefs.get("ui.popup.disable_autohide")) {
+          this.view.close();
+        }
+
+        // We collapse the urlbar for any clicks outside of it.
         this.endLayoutExtend(true);
     }
   }
@@ -1971,7 +2098,11 @@ class UrlbarInput {
       return;
     }
 
-    // Drag only if the entire value is selected and it's a loaded URI.
+    // Make sure we don't cover the tab bar or other potential drop targets.
+    this.endLayoutExtend(true);
+
+    // Only customize the drag data if the entire value is selected and it's a
+    // loaded URI. Use default behavior otherwise.
     if (
       this.selectionStart != 0 ||
       this.selectionEnd != this.inputField.textLength ||

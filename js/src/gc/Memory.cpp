@@ -385,9 +385,10 @@ void InitMemorySubsystem() {
 #else  // !defined(JS_64BIT)
     numAddressBits = 32;
 #endif
-#ifndef XP_WIN
+#ifdef RLIMIT_AS
     rlimit as_limit;
-    if (getrlimit(RLIMIT_AS, &as_limit) == 0 && as_limit.rlim_max != RLIM_INFINITY) {
+    if (getrlimit(RLIMIT_AS, &as_limit) == 0 &&
+        as_limit.rlim_max != RLIM_INFINITY) {
       virtualMemoryLimit = as_limit.rlim_max;
     }
 #endif

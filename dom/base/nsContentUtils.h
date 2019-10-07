@@ -1152,6 +1152,11 @@ class nsContentUtils {
    */
   static nsresult GenerateUUIDInPlace(nsID& aUUID);
 
+  /**
+   * Infallable (with an assertion) helper function that generates a UUID.
+   */
+  static nsID GenerateUUID();
+
   static bool PrefetchPreloadEnabled(nsIDocShell* aDocShell);
 
   static void ExtractErrorValues(JSContext* aCx, JS::Handle<JS::Value> aValue,
@@ -1951,11 +1956,12 @@ class nsContentUtils {
   static bool OfflineAppAllowed(nsIPrincipal* aPrincipal);
 
   /**
-   * Determine whether the principal is allowed access to the localization
-   * system. We don't want the web to ever see this but all our UI including in
-   * content pages should pass this test.
+   * Determine whether the principal or document is allowed access to the
+   * localization system. We don't want the web to ever see this but all our UI
+   * including in content pages should pass this test.
    */
-  static bool PrincipalAllowsL10n(nsIPrincipal* aPrincipal);
+  static bool PrincipalAllowsL10n(nsIPrincipal* aPrincipal,
+                                  nsIURI* aDocumentURI);
 
   /**
    * Increases the count of blockers preventing scripts from running.
@@ -2295,16 +2301,6 @@ class nsContentUtils {
   static bool IsFocusedContent(const nsIContent* aContent);
 
   /**
-   * Returns nullptr if requests for fullscreen are allowed in the current
-   * context. Requests are only allowed if the user initiated them (like with
-   * a mouse-click or key press), unless this check has been disabled by
-   * setting the pref "full-screen-api.allow-trusted-requests-only" to false.
-   * If fullscreen is not allowed, a key for the error message is returned.
-   */
-  static const char* CheckRequestFullscreenAllowed(
-      mozilla::dom::CallerType aCallerType);
-
-  /**
    * Returns true if calling execCommand with 'cut' or 'copy' arguments is
    * allowed for the given subject principal. These are only allowed if the user
    * initiated them (like with a mouse-click or key press).
@@ -2366,13 +2362,6 @@ class nsContentUtils {
    * have common scriptable top window.
    */
   static bool IsInPointerLockContext(nsPIDOMWindowOuter* aWin);
-
-  /**
-   * Returns the time limit on handling user input before
-   * EventStateManager::IsHandlingUserInput() stops returning true.
-   * This enables us to detect long running user-generated event handlers.
-   */
-  static TimeDuration HandlingUserInputTimeout();
 
   static void GetShiftText(nsAString& text);
   static void GetControlText(nsAString& text);
@@ -2638,6 +2627,13 @@ class nsContentUtils {
    */
   static mozilla::TextEditor* GetTextEditorFromAnonymousNodeWithoutCreation(
       nsIContent* aAnonymousContent);
+
+  /**
+   * Returns whether a node has an editable ancestor.
+   *
+   * @param aNode The node to test.
+   */
+  static bool IsNodeInEditableRegion(nsINode* aNode);
 
   /**
    * Returns a LogModule that dump calls from content script are logged to.
@@ -3138,6 +3134,11 @@ class nsContentUtils {
    */
   static bool HighPriorityEventPendingForTopLevelDocumentBeforeContentfulPaint(
       Document* aDocument);
+
+  /**
+   * We need a JSContext to get prototypes inside CallerInnerWindow.
+   */
+  static nsGlobalWindowInner* CallerInnerWindow(JSContext* aCx);
 
  private:
   static bool InitializeEventTable();

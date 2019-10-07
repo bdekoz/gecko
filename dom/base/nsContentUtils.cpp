@@ -81,6 +81,7 @@
 #include "mozilla/dom/UserActivation.h"
 #include "mozilla/dom/WorkerCommon.h"
 #include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/extensions/WebExtensionPolicy.h"
 #include "mozilla/net/CookieSettings.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
@@ -257,6 +258,7 @@
 #include "nsThreadManager.h"
 #include "nsIBidiKeyboard.h"
 #include "ReferrerInfo.h"
+#include "nsAboutProtocolUtils.h"
 
 #if defined(XP_WIN)
 // Undefine LoadImage to prevent naming conflict with Windows.
@@ -550,12 +552,6 @@ class nsContentUtils::UserInteractionObserver final
  private:
   ~UserInteractionObserver() {}
 };
-
-/* static */
-TimeDuration nsContentUtils::HandlingUserInputTimeout() {
-  return TimeDuration::FromMilliseconds(
-      StaticPrefs::dom_event_handling_user_input_time_limit());
-}
 
 // static
 nsresult nsContentUtils::Init() {
@@ -1670,8 +1666,30 @@ bool nsContentUtils::OfflineAppAllowed(nsIPrincipal* aPrincipal) {
   return NS_SUCCEEDED(rv) && allowed;
 }
 
+static bool IsErrorPage(nsIURI* aURI) {
+  if (!aURI) {
+    return false;
+  }
+
+  if (!aURI->SchemeIs("about")) {
+    return false;
+  }
+
+  nsAutoCString name;
+  nsresult rv = NS_GetAboutModuleName(aURI, name);
+  NS_ENSURE_SUCCESS(rv, false);
+
+  return name.EqualsLiteral("certerror") || name.EqualsLiteral("neterror") ||
+         name.EqualsLiteral("blocked");
+}
+
 /* static */
-bool nsContentUtils::PrincipalAllowsL10n(nsIPrincipal* aPrincipal) {
+bool nsContentUtils::PrincipalAllowsL10n(nsIPrincipal* aPrincipal,
+                                         nsIURI* aDocumentURI) {
+  if (IsErrorPage(aDocumentURI)) {
+    return true;
+  }
+
   // The system principal is always allowed.
   if (IsSystemPrincipal(aPrincipal)) {
     return true;
@@ -1695,7 +1713,13 @@ bool nsContentUtils::PrincipalAllowsL10n(nsIPrincipal* aPrincipal) {
   rv = NS_URIChainHasFlags(uri, nsIProtocolHandler::URI_IS_UI_RESOURCE,
                            &hasFlags);
   NS_ENSURE_SUCCESS(rv, false);
-  return hasFlags;
+  if (hasFlags) {
+    return true;
+  }
+
+  auto principal = BasePrincipal::Cast(aPrincipal);
+  auto policy = principal->AddonPolicy();
+  return (policy && policy->IsPrivileged());
 }
 
 // static
@@ -6191,13 +6215,9 @@ bool nsContentUtils::AllowXULXBLForPrincipal(nsIPrincipal* aPrincipal) {
     return true;
   }
 
-  nsCOMPtr<nsIURI> princURI;
-  aPrincipal->GetURI(getter_AddRefs(princURI));
-
-  return princURI &&
-         ((StaticPrefs::dom_allow_XUL_XBL_for_file() &&
-           SchemeIs(princURI, "file")) ||
-          IsSitePermAllow(aPrincipal, NS_LITERAL_CSTRING("allowXULXBL")));
+  return (StaticPrefs::dom_allow_XUL_XBL_for_file() &&
+          aPrincipal->SchemeIs("file")) ||
+         IsSitePermAllow(aPrincipal, NS_LITERAL_CSTRING("allowXULXBL"));
 }
 
 bool nsContentUtils::IsPDFJSEnabled() {
@@ -6384,38 +6404,6 @@ bool nsContentUtils::ChannelShouldInheritPrincipal(
          !aLoadingPrincipal->IsSystemPrincipal());
   }
   return inherit;
-}
-
-/* static */
-const char* nsContentUtils::CheckRequestFullscreenAllowed(
-    CallerType aCallerType) {
-  if (!StaticPrefs::full_screen_api_allow_trusted_requests_only() ||
-      aCallerType == CallerType::System) {
-    return nullptr;
-  }
-
-  if (!UserActivation::IsHandlingUserInput()) {
-    return "FullscreenDeniedNotInputDriven";
-  }
-
-  // If more time has elapsed since the user input than is specified by the
-  // dom.event.handling-user-input-time-limit pref (default 1 second),
-  // disallow fullscreen
-  TimeDuration timeout = HandlingUserInputTimeout();
-  if (timeout > TimeDuration(nullptr) &&
-      (TimeStamp::Now() - UserActivation::GetHandlingInputStart()) > timeout) {
-    return "FullscreenDeniedNotInputDriven";
-  }
-
-  // Entering full-screen on mouse mouse event is only allowed with left mouse
-  // button
-  if (StaticPrefs::full_screen_api_mouse_event_allow_left_button_only() &&
-      (EventStateManager::sCurrentMouseBtn == MouseButton::eMiddle ||
-       EventStateManager::sCurrentMouseBtn == MouseButton::eRight)) {
-    return "FullscreenDeniedMouseEventOnlyLeftBtn";
-  }
-
-  return nullptr;
 }
 
 /* static */
@@ -6686,6 +6674,17 @@ TextEditor* nsContentUtils::GetTextEditorFromAnonymousNodeWithoutCreation(
 }
 
 // static
+bool nsContentUtils::IsNodeInEditableRegion(nsINode* aNode) {
+  while (aNode) {
+    if (aNode->IsEditable()) {
+      return true;
+    }
+    aNode = aNode->GetParent();
+  }
+  return false;
+}
+
+// static
 bool nsContentUtils::IsForbiddenRequestHeader(const nsACString& aHeader) {
   if (IsForbiddenSystemRequestHeader(aHeader)) {
     return true;
@@ -6887,6 +6886,16 @@ nsresult nsContentUtils::GenerateUUIDInPlace(nsID& aUUID) {
   }
 
   return NS_OK;
+}
+
+nsID nsContentUtils::GenerateUUID() {
+  MOZ_DIAGNOSTIC_ASSERT(sUUIDGenerator);
+
+  nsID uuid;
+  nsresult rv = sUUIDGenerator->GenerateUUIDInPlace(&uuid);
+  MOZ_RELEASE_ASSERT(NS_SUCCEEDED(rv));
+
+  return uuid;
 }
 
 bool nsContentUtils::PrefetchPreloadEnabled(nsIDocShell* aDocShell) {
@@ -8650,7 +8659,7 @@ bool nsContentUtils::IsSpecificAboutPage(JSObject* aGlobal, const char* aUri) {
   }
 
   // First check the scheme to avoid getting long specs in the common case.
-  if (!uri->SchemeIs("about")) {
+  if (!principal->SchemeIs("about")) {
     return false;
   }
 
@@ -10092,6 +10101,42 @@ bool nsContentUtils::
          topLevel->GetPresShell()->GetPresContext() &&
          !topLevel->GetPresShell()->GetPresContext()->HadContentfulPaint() &&
          nsThreadManager::MainThreadHasPendingHighPriorityEvents();
+}
+
+/* static */
+nsGlobalWindowInner* nsContentUtils::CallerInnerWindow(JSContext* aCx) {
+  nsIGlobalObject* global = GetIncumbentGlobal();
+  NS_ENSURE_TRUE(global, nullptr);
+  JS::Rooted<JSObject*> scope(aCx, global->GetGlobalJSObject());
+  NS_ENSURE_TRUE(scope, nullptr);
+
+  // When Extensions run content scripts inside a sandbox, it uses
+  // sandboxPrototype to make them appear as though they're running in the
+  // scope of the page. So when a content script invokes postMessage, it expects
+  // the |source| of the received message to be the window set as the
+  // sandboxPrototype. This used to work incidentally for unrelated reasons, but
+  // now we need to do some special handling to support it.
+  if (xpc::IsSandbox(scope)) {
+    JSAutoRealm ar(aCx, scope);
+    JS::Rooted<JSObject*> scopeProto(aCx);
+    bool ok = JS_GetPrototype(aCx, scope, &scopeProto);
+    NS_ENSURE_TRUE(ok, nullptr);
+    if (scopeProto && xpc::IsSandboxPrototypeProxy(scopeProto) &&
+        // Our current Realm on aCx is the sandbox.  Using that for the
+        // CheckedUnwrapDynamic call makes sense: if the sandbox can unwrap the
+        // window, we can use it.  And we do want CheckedUnwrapDynamic, because
+        // the whole point is to unwrap windows.
+        (scopeProto = js::CheckedUnwrapDynamic(
+             scopeProto, aCx, /* stopAtWindowProxy = */ false))) {
+      global = xpc::NativeGlobal(scopeProto);
+      NS_ENSURE_TRUE(global, nullptr);
+    }
+  }
+
+  // The calling window must be holding a reference, so we can return a weak
+  // pointer.
+  nsCOMPtr<nsPIDOMWindowInner> win = do_QueryInterface(global);
+  return nsGlobalWindowInner::Cast(win);
 }
 
 /* static */

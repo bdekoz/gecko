@@ -78,7 +78,6 @@
 #include "nsAlgorithm.h"                              // for clamped
 #include "nsCOMPtr.h"                                 // for already_AddRefed
 #include "nsDebug.h"                                  // for NS_WARNING
-#include "nsIDOMWindowUtils.h"                        // for nsIDOMWindowUtils
 #include "nsMathUtils.h"                              // for NS_hypot
 #include "nsPoint.h"                                  // for nsIntPoint
 #include "nsStyleConsts.h"
@@ -2010,11 +2009,17 @@ nsEventStatus AsyncPanZoomController::OnKeyboard(const KeyboardInput& aEvent) {
   if (!StaticPrefs::general_smoothScroll()) {
     CancelAnimation();
 
-    // CallDispatchScroll interprets the start and end points as the start and
-    // end of a touch scroll so they need to be reversed.
-    ParentLayerPoint startPoint = destination * Metrics().GetZoom();
-    ParentLayerPoint endPoint =
-        Metrics().GetScrollOffset() * Metrics().GetZoom();
+    ParentLayerPoint startPoint, endPoint;
+
+    {
+      RecursiveMutexAutoLock lock(mRecursiveMutex);
+
+      // CallDispatchScroll interprets the start and end points as the start and
+      // end of a touch scroll so they need to be reversed.
+      startPoint = destination * Metrics().GetZoom();
+      endPoint = Metrics().GetScrollOffset() * Metrics().GetZoom();
+    }
+
     ParentLayerPoint delta = endPoint - startPoint;
 
     ScreenPoint distance = ToScreenCoordinates(

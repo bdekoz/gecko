@@ -192,8 +192,6 @@ var whitelist = [
   { file: "chrome://global/content/test-ipc.xul" },
   // Bug 1378173 (warning: still used by devtools)
   { file: "resource://gre/modules/Promise.jsm" },
-  // Still used by WebIDE, which is going away but not entirely gone.
-  { file: "resource://gre/modules/ZipUtils.jsm" },
   // Bug 1494170
   // (The references to these files are dynamically generated, so the test can't
   // find the references)
@@ -815,7 +813,6 @@ add_task(async function checkAllTheFiles() {
   // Keep only chrome:// files, and filter out either the devtools paths or
   // the non-devtools paths:
   let devtoolsPrefixes = [
-    "chrome://webide/",
     "chrome://devtools",
     "resource://devtools/",
     "resource://devtools-client-jsonview/",

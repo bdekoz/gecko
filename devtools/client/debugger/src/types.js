@@ -340,6 +340,8 @@ export type Expression = {
   value: Object,
   from: string,
   updating: boolean,
+  exception?: string,
+  error?: string,
 };
 
 /**
@@ -491,11 +493,12 @@ export type DOMMutationBreakpoint = {
 export type { Context, ThreadContext } from "./utils/context";
 
 export type Previews = {
-  [line: string]: Array<Preview>,
+  line: Array<Preview>,
 };
 
 export type Preview = {
   name: string,
   value: any,
   column: number,
+  line: number,
 };

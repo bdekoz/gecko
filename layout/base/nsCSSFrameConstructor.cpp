@@ -30,6 +30,7 @@
 #include "mozilla/ServoBindings.h"
 #include "mozilla/ServoStyleSetInlines.h"
 #include "mozilla/StaticPrefs_layout.h"
+#include "mozilla/Unused.h"
 #include "RetainedDisplayListBuilder.h"
 #include "nsAbsoluteContainingBlock.h"
 #include "nsCSSPseudoElements.h"
@@ -3043,13 +3044,15 @@ nsIFrame* nsCSSFrameConstructor::ConstructFieldSetFrame(
   nsContainerFrame* contentFrameTop;
   nsContainerFrame* contentFrame;
   auto parent = scrollFrame ? scrollFrame : fieldsetFrame;
-  switch (fieldsetContentDisplay->mDisplay) {
-    case StyleDisplay::Flex:
+  MOZ_ASSERT(fieldsetContentDisplay->DisplayOutside() ==
+             StyleDisplayOutside::Block);
+  switch (fieldsetContentDisplay->DisplayInside()) {
+    case StyleDisplayInside::Flex:
       contentFrame = NS_NewFlexContainerFrame(mPresShell, fieldsetContentStyle);
       InitAndRestoreFrame(aState, content, parent, contentFrame);
       contentFrameTop = contentFrame;
       break;
-    case StyleDisplay::Grid:
+    case StyleDisplayInside::Grid:
       contentFrame = NS_NewGridContainerFrame(mPresShell, fieldsetContentStyle);
       InitAndRestoreFrame(aState, content, parent, contentFrame);
       contentFrameTop = contentFrame;
@@ -3690,15 +3693,13 @@ void nsCSSFrameConstructor::ConstructFrameFromItemInternal(
       nsContainerFrame* container = static_cast<nsContainerFrame*>(newFrame);
       nsContainerFrame* innerFrame;
       if (bits & FCDATA_ALLOW_GRID_FLEX_COLUMN) {
-        switch (display->mDisplay) {
-          case StyleDisplay::Flex:
-          case StyleDisplay::InlineFlex:
+        switch (display->DisplayInside()) {
+          case StyleDisplayInside::Flex:
             outerFrame = NS_NewFlexContainerFrame(mPresShell, outerStyle);
             InitAndRestoreFrame(aState, content, container, outerFrame);
             innerFrame = outerFrame;
             break;
-          case StyleDisplay::Grid:
-          case StyleDisplay::InlineGrid:
+          case StyleDisplayInside::Grid:
             outerFrame = NS_NewGridContainerFrame(mPresShell, outerStyle);
             InitAndRestoreFrame(aState, content, container, outerFrame);
             innerFrame = outerFrame;
@@ -5702,6 +5703,15 @@ void nsCSSFrameConstructor::ConstructFramesFromItem(
     nsContainerFrame* aParentFrame, nsFrameList& aFrameList) {
   FrameConstructionItem& item = aIter.item();
   ComputedStyle* computedStyle = item.mComputedStyle;
+
+  const auto* disp = computedStyle->StyleDisplay();
+  MOZ_ASSERT(!disp->IsAbsolutelyPositionedStyle() ||
+                 (disp->mDisplay != StyleDisplay::MozBox &&
+                  disp->mDisplay != StyleDisplay::MozInlineBox),
+             "This may be a frame that was previously blockified "
+             "but isn't any longer! It probably needs explicit "
+             "'display:block' to preserve behavior");
+  Unused << disp;  // (unused in configs that define the assertion away)
 
   if (item.mIsText) {
     // If this is collapsible whitespace next to a line boundary,

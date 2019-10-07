@@ -13,6 +13,7 @@
 #include "gfxMathTable.h"
 #include "gfxTextRun.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/StaticPrefs_mathml.h"
 
 using namespace mozilla;
 
@@ -107,8 +108,7 @@ void nsMathMLmunderoverFrame::SetIncrementScriptLevel(uint32_t aChildIndex,
     return;
   }
 
-  // XXXfredw: Use MathMLElement::fromNode.
-  auto element = static_cast<dom::MathMLElement*>(child->GetContent());
+  auto element = dom::MathMLElement::FromNode(child->GetContent());
   if (element->GetIncrementScriptLevel() == aIncrement) {
     return;
   }
@@ -143,8 +143,7 @@ void nsMathMLmunderoverFrame::SetPendingPostReflowIncrementScriptLevel() {
       continue;
     }
 
-    // XXXfredw: Use MathMLElement::fromNode.
-    auto element = static_cast<dom::MathMLElement*>(child->GetContent());
+    auto element = dom::MathMLElement::FromNode(child->GetContent());
     element->SetIncrementScriptLevel(command.mDoIncrement, true);
   }
 }
@@ -580,8 +579,11 @@ nsresult nsMathMLmunderoverFrame::Place(DrawTarget* aDrawTarget,
   nsAutoString valueAlign;
   enum { center, left, right } alignPosition = center;
 
-  if (mContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::align,
+  if (!StaticPrefs::mathml_deprecated_alignment_attributes_disabled() &&
+      mContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::align,
                                      valueAlign)) {
+    mContent->OwnerDoc()->WarnOnceAbout(
+        dom::Document::eMathML_DeprecatedAlignmentAttributes);
     if (valueAlign.EqualsLiteral("left")) {
       alignPosition = left;
     } else if (valueAlign.EqualsLiteral("right")) {

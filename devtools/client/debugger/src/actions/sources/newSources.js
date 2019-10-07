@@ -15,6 +15,7 @@ import {
   stringToSourceActorId,
   type SourceActor,
 } from "../../reducers/source-actors";
+import { supportsWasm } from "../../reducers/threads";
 import { insertSourceActors } from "../../actions/source-actors";
 import { makeSourceId } from "../../client/firefox/create";
 import { toggleBlackBox } from "./blackbox";
@@ -198,6 +199,7 @@ function checkPendingBreakpoints(cx: Context, sourceId: string) {
 
     // load the source text if there is a pending breakpoint for it
     await dispatch(loadSourceText({ cx, source }));
+    await dispatch(setBreakableLines(cx, source.id));
 
     await Promise.all(
       pendingBreakpoints.map(bp => {
@@ -291,8 +293,6 @@ export function newGeneratedSources(sourceInfo: Array<GeneratedSourceData>) {
     getState,
     client,
   }: ThunkArgs): Promise<Array<Source>> => {
-    const supportsWasm = client.hasWasmSupport();
-
     const resultIds = [];
     const newSourcesObj = {};
     const newSourceActors: Array<SourceActor> = [];
@@ -310,7 +310,8 @@ export function newGeneratedSources(sourceInfo: Array<GeneratedSourceData>) {
           introductionUrl: source.introductionUrl,
           introductionType: source.introductionType,
           isBlackBoxed: false,
-          isWasm: !!supportsWasm && source.introductionType === "wasm",
+          isWasm:
+            !!supportsWasm(getState()) && source.introductionType === "wasm",
           isExtension: (source.url && isUrlExtension(source.url)) || false,
         };
       }

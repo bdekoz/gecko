@@ -201,7 +201,6 @@ pref("browser.uitour.surveyDuration", 7200);
 pref("keyword.enabled", true);
 pref("browser.fixup.domainwhitelist.localhost", true);
 
-pref("general.smoothScroll", true);
 #ifdef UNIX_BUT_NOT_MAC
   pref("general.autoScroll", false);
 #else
@@ -331,7 +330,11 @@ pref("browser.urlbar.usepreloadedtopurls.enabled", false);
 pref("browser.urlbar.usepreloadedtopurls.expire_days", 14);
 
 // Whether the quantum bar displays the major design update.
-pref("browser.urlbar.megabar", false);
+#ifdef NIGHTLY_BUILD
+  pref("browser.urlbar.megabar", true);
+#else
+  pref("browser.urlbar.megabar", false);
+#endif
 
 pref("browser.urlbar.openViewOnFocus", false);
 pref("browser.urlbar.eventTelemetry.enabled", false);
@@ -385,6 +388,10 @@ pref("browser.search.hiddenOneOffs", "");
 
 // Mirrors whether the search-container widget is in the navigation toolbar.
 pref("browser.search.widget.inNavBar", false);
+
+// Enables display of the options for the user using a separate default search
+// engine in private browsing mode.
+pref("browser.search.separatePrivateDefault.ui.enabled", false);
 
 pref("browser.sessionhistory.max_entries", 50);
 
@@ -1627,7 +1634,7 @@ pref("browser.contentblocking.report.monitor.url", "https://monitor.firefox.com/
 pref("browser.contentblocking.report.monitor.sign_in_url", "https://monitor.firefox.com/oauth/init?entrypoint=protection_report_monitor&utm_source=about-protections&email=");
 pref("browser.contentblocking.report.lockwise.url", "https://lockwise.firefox.com/");
 pref("browser.contentblocking.report.manage_devices.url", "https://accounts.firefox.com/settings/clients");
-pref("browser.contentblocking.report.proxy_extension.url", "https://private-network.firefox.com/");
+pref("browser.contentblocking.report.proxy_extension.url", "https://fpn.firefox.com/browser");
 
 // Protection Report's SUMO urls
 pref("browser.contentblocking.report.monitor.how_it_works.url", "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/monitor-faq");
@@ -1934,10 +1941,6 @@ pref("identity.fxaccounts.service.monitorLoginUrl", "https://monitor.firefox.com
 #else
   pref("corroborator.enabled", true);
 #endif
-
-// Disable WebIDE and ConnectPage by default (Bug 1539451)
-pref("devtools.webide.enabled", false);
-pref("devtools.connectpage.enabled", false);
 
 // Toolbox preferences
 pref("devtools.toolbox.footer.height", 250);
@@ -2360,16 +2363,6 @@ pref("devtools.popup.disable_autohide", false);
 // tests that started failing when using type=content, but this ultimately
 // should be removed.
 pref("devtools.toolbox.content-frame", true);
-
-pref("devtools.webide.templatesURL", "https://code.cdn.mozilla.net/templates/list.json");
-pref("devtools.webide.autoinstallADBExtension", true);
-pref("devtools.webide.autoConnectRuntime", true);
-pref("devtools.webide.restoreLastProject", true);
-pref("devtools.webide.enableLocalRuntime", false);
-pref("devtools.webide.lastConnectedRuntime", "");
-pref("devtools.webide.lastSelectedProject", "");
-pref("devtools.webide.zoom", "1");
-pref("devtools.webide.busyTimeout", 10000);
 
 // FirstStartup service time-out in ms
 pref("first-startup.timeout", 30000);

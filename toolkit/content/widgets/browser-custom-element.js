@@ -1039,16 +1039,6 @@
       }
     }
 
-    forceRepaint() {
-      if (!this.isRemoteBrowser) {
-        return;
-      }
-      let { frameLoader } = this;
-      if (frameLoader && frameLoader.remoteTab) {
-        frameLoader.remoteTab.forceRepaint();
-      }
-    }
-
     getTabBrowser() {
       if (
         this.ownerGlobal.gBrowser &&
@@ -1586,7 +1576,7 @@
 
         this._remoteWebNavigationImpl._currentURI = aLocation;
         this._documentURI = aDocumentURI;
-        this._contentTile = aTitle;
+        this._contentTitle = aTitle;
         this._imageDocument = null;
         this._contentPrincipal = aContentPrincipal;
         this._contentStoragePrincipal = aContentStoragePrincipal;
@@ -1603,19 +1593,22 @@
 
     purgeSessionHistory() {
       if (this.isRemoteBrowser) {
-        try {
-          this.messageManager.sendAsyncMessage("Browser:PurgeSessionHistory");
-        } catch (ex) {
-          // This can throw if the browser has started to go away.
-          if (ex.result != Cr.NS_ERROR_NOT_INITIALIZED) {
-            throw ex;
-          }
-        }
         this._remoteWebNavigationImpl.canGoBack = false;
         this._remoteWebNavigationImpl.canGoForward = false;
-        return;
       }
-      this.messageManager.sendAsyncMessage("Browser:PurgeSessionHistory");
+      try {
+        this.sendMessageToActor(
+          "Browser:PurgeSessionHistory",
+          {},
+          "PurgeSessionHistory",
+          true
+        );
+      } catch (ex) {
+        // This can throw if the browser has started to go away.
+        if (ex.result != Cr.NS_ERROR_NOT_INITIALIZED) {
+          throw ex;
+        }
+      }
     }
 
     createAboutBlankContentViewer(aPrincipal, aStoragePrincipal) {

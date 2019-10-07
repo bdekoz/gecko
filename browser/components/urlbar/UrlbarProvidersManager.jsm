@@ -34,6 +34,8 @@ XPCOMUtils.defineLazyGetter(this, "logger", () =>
 var localProviderModules = {
   UrlbarProviderUnifiedComplete:
     "resource:///modules/UrlbarProviderUnifiedComplete.jsm",
+  UrlbarProviderPrivateSearch:
+    "resource:///modules/UrlbarProviderPrivateSearch.jsm",
 };
 
 // List of available local muxers, each is implemented in its own jsm module.
@@ -314,6 +316,9 @@ class Query {
     // Nothing should be failing above, since we catch all the promises, thus
     // this is not in a finally for now.
     this.complete = true;
+
+    // Break cycles with the controller to avoid leaks.
+    this.controller = null;
   }
 
   /**
@@ -367,6 +372,7 @@ class Query {
       return;
     }
 
+    match.providerName = provider.name;
     this.context.results.push(match);
 
     let notifyResults = () => {

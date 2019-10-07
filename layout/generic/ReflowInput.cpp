@@ -772,7 +772,7 @@ void ReflowInput::InitDynamicReflowRoot() {
   if (mFrame->IsFrameOfType(nsIFrame::eLineParticipant) ||
       nsStyleDisplay::IsRubyDisplayType(display) ||
       mFrameType == NS_CSS_FRAME_TYPE_INTERNAL_TABLE ||
-      display == StyleDisplay::Table || display == StyleDisplay::InlineTable ||
+      nsStyleDisplay::DisplayInside(display) == StyleDisplayInside::Table ||
       (mFrame->GetParent() && mFrame->GetParent()->IsXULBoxFrame())) {
     // We have a display type where 'width' and 'height' don't actually
     // set the width or height (i.e., the size depends on content).
@@ -2182,7 +2182,7 @@ void ReflowInput::InitConstraints(
     nsPresContext* aPresContext, const Maybe<LogicalSize>& aContainingBlockSize,
     const nsMargin* aBorder, const nsMargin* aPadding,
     LayoutFrameType aFrameType) {
-  MOZ_DIAGNOSTIC_ASSERT(
+  MOZ_ASSERT(
       !IsFloating() || (mStyleDisplay->mDisplay != StyleDisplay::MozBox &&
                         mStyleDisplay->mDisplay != StyleDisplay::MozInlineBox),
       "Please don't try to float a -moz-box or a -moz-inline-box");

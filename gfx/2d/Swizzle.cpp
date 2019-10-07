@@ -877,19 +877,13 @@ void UnpackRowRGB24(const uint8_t* aSrc, uint8_t* aDst, int32_t aLength) {
   // Because we are expanding, we can only process the data back to front in
   // case we are performing this in place.
   const uint8_t* src = aSrc + 3 * (aLength - 1);
-  uint8_t* dst = aDst + 4 * (aLength - 1);
+  uint32_t* dst = reinterpret_cast<uint32_t*>(aDst + 4 * aLength);
   while (src >= aSrc) {
     uint8_t r = src[aSwapRB ? 2 : 0];
     uint8_t g = src[1];
     uint8_t b = src[aSwapRB ? 0 : 2];
-
-    dst[0] = r;
-    dst[1] = g;
-    dst[2] = b;
-    dst[3] = 0xFF;
-
+    *--dst = 0xFF000000 | (b << 16) | (g << 8) | r;
     src -= 3;
-    dst -= 4;
   }
 }
 

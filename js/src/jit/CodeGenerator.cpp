@@ -11207,7 +11207,6 @@ void CodeGenerator::addGetPropertyCache(
 
 void CodeGenerator::addSetPropertyCache(
     LInstruction* ins, LiveRegisterSet liveRegs, Register objReg, Register temp,
-    FloatRegister tempDouble, FloatRegister tempF32,
     const ConstantOrRegister& id, const ConstantOrRegister& value, bool strict,
     bool needsPostBarrier, bool needsTypeBarrier, bool guardHoles) {
   CacheKind kind = CacheKind::SetElem;
@@ -11218,9 +11217,8 @@ void CodeGenerator::addSetPropertyCache(
       kind = CacheKind::SetProp;
     }
   }
-  IonSetPropertyIC cache(kind, liveRegs, objReg, temp, tempDouble, tempF32, id,
-                         value, strict, needsPostBarrier, needsTypeBarrier,
-                         guardHoles);
+  IonSetPropertyIC cache(kind, liveRegs, objReg, temp, id, value, strict,
+                         needsPostBarrier, needsTypeBarrier, guardHoles);
   addIC(ins, allocateIC(cache));
 }
 
@@ -11398,17 +11396,14 @@ void CodeGenerator::visitSetPropertyCache(LSetPropertyCache* ins) {
   LiveRegisterSet liveRegs = ins->safepoint()->liveRegs();
   Register objReg = ToRegister(ins->getOperand(0));
   Register temp = ToRegister(ins->temp());
-  FloatRegister tempDouble = ToTempFloatRegisterOrInvalid(ins->tempDouble());
-  FloatRegister tempF32 = ToTempFloatRegisterOrInvalid(ins->tempFloat32());
 
   ConstantOrRegister id = toConstantOrRegister(ins, LSetPropertyCache::Id,
                                                ins->mir()->idval()->type());
   ConstantOrRegister value = toConstantOrRegister(ins, LSetPropertyCache::Value,
                                                   ins->mir()->value()->type());
 
-  addSetPropertyCache(ins, liveRegs, objReg, temp, tempDouble, tempF32, id,
-                      value, ins->mir()->strict(),
-                      ins->mir()->needsPostBarrier(),
+  addSetPropertyCache(ins, liveRegs, objReg, temp, id, value,
+                      ins->mir()->strict(), ins->mir()->needsPostBarrier(),
                       ins->mir()->needsTypeBarrier(), ins->mir()->guardHoles());
 }
 
@@ -13881,33 +13876,34 @@ void CodeGenerator::emitIonToWasmCallBase(LIonToWasmCallBase<NumDefs>* lir) {
     }
   }
 
-  switch (sig.ret().code()) {
-    case wasm::ExprType::Void:
-      MOZ_ASSERT(lir->mir()->type() == MIRType::Value);
-      break;
-    case wasm::ExprType::I32:
-      MOZ_ASSERT(lir->mir()->type() == MIRType::Int32);
-      MOZ_ASSERT(ToRegister(lir->output()) == ReturnReg);
-      break;
-    case wasm::ExprType::F32:
-      MOZ_ASSERT(lir->mir()->type() == MIRType::Float32);
-      MOZ_ASSERT(ToFloatRegister(lir->output()) == ReturnFloat32Reg);
-      break;
-    case wasm::ExprType::F64:
-      MOZ_ASSERT(lir->mir()->type() == MIRType::Double);
-      MOZ_ASSERT(ToFloatRegister(lir->output()) == ReturnDoubleReg);
-      break;
-    case wasm::ExprType::Ref:
-    case wasm::ExprType::AnyRef:
-    case wasm::ExprType::FuncRef:
-    case wasm::ExprType::I64:
-      // Don't forget to trace GC type return value in TraceJitExitFrames
-      // when they're enabled.
-      MOZ_CRASH("unexpected return type when calling from ion to wasm");
-    case wasm::ExprType::NullRef:
-      MOZ_CRASH("NullRef not expressible");
-    case wasm::ExprType::Limit:
-      MOZ_CRASH("Limit");
+  const wasm::ValTypeVector& results = sig.results();
+  if (results.length() == 0) {
+    MOZ_ASSERT(lir->mir()->type() == MIRType::Value);
+  } else {
+    MOZ_ASSERT(results.length() == 1, "multi-value return unimplemented");
+    switch (results[0].code()) {
+      case wasm::ValType::I32:
+        MOZ_ASSERT(lir->mir()->type() == MIRType::Int32);
+        MOZ_ASSERT(ToRegister(lir->output()) == ReturnReg);
+        break;
+      case wasm::ValType::F32:
+        MOZ_ASSERT(lir->mir()->type() == MIRType::Float32);
+        MOZ_ASSERT(ToFloatRegister(lir->output()) == ReturnFloat32Reg);
+        break;
+      case wasm::ValType::F64:
+        MOZ_ASSERT(lir->mir()->type() == MIRType::Double);
+        MOZ_ASSERT(ToFloatRegister(lir->output()) == ReturnDoubleReg);
+        break;
+      case wasm::ValType::Ref:
+      case wasm::ValType::AnyRef:
+      case wasm::ValType::FuncRef:
+      case wasm::ValType::I64:
+        // Don't forget to trace GC type return value in TraceJitExitFrames
+        // when they're enabled.
+        MOZ_CRASH("unexpected return type when calling from ion to wasm");
+      case wasm::ValType::NullRef:
+        MOZ_CRASH("NullRef not expressible");
+    }
   }
 
   bool profilingEnabled = isProfilerInstrumentationEnabled();

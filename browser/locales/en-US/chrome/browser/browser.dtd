@@ -82,10 +82,6 @@ convenience of Safari and Chrome users on macOS. See bug 1398988. -->
 <!ENTITY fullScreenMinimize.tooltip "Minimize">
 <!ENTITY fullScreenRestore.tooltip "Restore">
 <!ENTITY fullScreenClose.tooltip "Close">
-<!ENTITY fullScreenAutohide.label "Hide Toolbars">
-<!ENTITY fullScreenAutohide.accesskey "H">
-<!ENTITY fullScreenExit.label "Exit Full Screen Mode">
-<!ENTITY fullScreenExit.accesskey "F">
 
 <!ENTITY pictureInPictureHideToggle.label "Hide Picture-in-Picture Toggle">
 <!ENTITY pictureInPictureHideToggle.accesskey "H">
@@ -93,7 +89,7 @@ convenience of Safari and Chrome users on macOS. See bug 1398988. -->
 <!-- LOCALIZATION NOTE (fxa.menu) Used to define the different labels
      for the Firefox Account toolbar menu screen. The `Signed in as` text is
      followed by the user's email. -->
-<!ENTITY fxa.menu.syncSettings.label "&syncBrand.shortName.label; Settings…">
+<!ENTITY fxa.menu.syncSettings2.label "&syncBrand.shortName.label; Settings">
 <!ENTITY fxa.menu.connectAnotherDevice2.label "Connect Another Device…">
 <!ENTITY fxa.menu.firefoxAccount "&syncBrand.fxAccount.label;">
 <!ENTITY fxa.menu.signin.label "Sign in to &brandProductName;">
@@ -104,6 +100,7 @@ convenience of Safari and Chrome users on macOS. See bug 1398988. -->
 <!ENTITY fxa.menu.accountSettings.label "Account Settings">
 <!ENTITY fxa.menu.signOut.label "Sign Out…">
 <!ENTITY fxa.menu.deviceSettings.label "Device Settings">
+<!ENTITY fxa.menu.setupSync.label "Set Up &syncBrand.shortName.label;…">
 
 <!-- LOCALIZATION NOTE (fxa.service) Used to define the different FxA services
      for the Firefox Account toolbar menu screen.  -->
@@ -715,7 +712,7 @@ you can use these alternative items. Otherwise, their values should be empty.  -
      a tooltip explaining why these items were not blocked in the page. -->
 <!ENTITY protections.notBlocking.why.label "Why?">
 <!ENTITY protections.notBlocking.why.etpOn.tooltip "Blocking these could break elements of some websites. Without trackers, some buttons, forms, and login fields might not work.">
-<!ENTITY protections.notBlocking.why.etpOff.tooltip "Turning off protections will allow all trackers on this site. It may also improve some website functionality.">
+<!ENTITY protections.notBlocking.why.etpOff2.tooltip "All trackers on this site have been loaded because protections are turned off.">
 <!ENTITY protections.noTrackersFound.description "No trackers known to &brandShortName; were detected on this page.">
 
 <!ENTITY protections.crossSiteTrackingCookies.description "These cookies follow you from site to site to gather data about what you do online. They are set by third parties such as advertisers and analytics companies.">

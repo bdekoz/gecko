@@ -206,6 +206,9 @@ void GfxInfo::EnsureInitialized() {
 
   AddCrashReportAnnotations();
 
+  mScreenInfo.mScreenDimensions =
+      mozilla::AndroidBridge::Bridge()->getScreenSize();
+
   mInitialized = true;
 }
 
@@ -329,6 +332,17 @@ NS_IMETHODIMP
 GfxInfo::GetIsGPU2Active(bool* aIsGPU2Active) {
   EnsureInitialized();
   return NS_ERROR_FAILURE;
+}
+
+NS_IMETHODIMP
+GfxInfo::GetDisplayInfo(nsTArray<nsString>& aDisplayInfo) {
+  EnsureInitialized();
+  nsString displayInfo;
+  displayInfo.AppendPrintf("%dx%d",
+                           (int32_t)mScreenInfo.mScreenDimensions.width,
+                           (int32_t)mScreenInfo.mScreenDimensions.height);
+  aDisplayInfo.AppendElement(displayInfo);
+  return NS_OK;
 }
 
 void GfxInfo::AddCrashReportAnnotations() {
@@ -530,7 +544,8 @@ nsresult GfxInfo::GetFeatureStatusImpl(
 
     if (aFeature == FEATURE_WEBRENDER) {
       NS_LossyConvertUTF16toASCII model(mModel);
-      bool isBlocked = !model.Equals("Pixel 2", nsCaseInsensitiveCStringComparator());
+      bool isBlocked =
+          !model.Equals("Pixel 2", nsCaseInsensitiveCStringComparator());
 
       if (isBlocked) {
         *aStatus = nsIGfxInfo::FEATURE_BLOCKED_DEVICE;

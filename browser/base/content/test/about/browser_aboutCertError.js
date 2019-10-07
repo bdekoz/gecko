@@ -508,3 +508,38 @@ add_task(async function checkBadStsCertHeadline() {
     BrowserTestUtils.removeTab(gBrowser.selectedTab);
   }
 });
+
+add_task(async function checkSandboxedIframe() {
+  info(
+    "Loading a bad sts cert error in a sandboxed iframe and check that the correct headline is shown"
+  );
+  let useFrame = true;
+  let sandboxed = true;
+  let tab = await openErrorPage(BAD_CERT, useFrame, sandboxed);
+  let browser = tab.linkedBrowser;
+
+  await ContentTask.spawn(browser, {}, async function() {
+    let doc = content.document.querySelector("iframe").contentDocument;
+
+    let titleText = doc.querySelector(".title-text");
+    ok(
+      titleText.textContent.endsWith("Security Issue"),
+      "Title shows Did Not Connect: Potential Security Issue"
+    );
+
+    // Wait until fluent sets the errorCode inner text.
+    let el;
+    await ContentTaskUtils.waitForCondition(() => {
+      el = doc.getElementById("errorCode");
+      return el.textContent != "";
+    }, "error code has been set inside the advanced button panel");
+
+    is(
+      el.textContent,
+      "SEC_ERROR_EXPIRED_CERTIFICATE",
+      "Correct error message found"
+    );
+    is(el.tagName, "a", "Error message is a link");
+  });
+  BrowserTestUtils.removeTab(gBrowser.selectedTab);
+});

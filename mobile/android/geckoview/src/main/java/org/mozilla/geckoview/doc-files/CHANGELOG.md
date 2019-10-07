@@ -41,6 +41,19 @@ exclude: true
 - ⚠️ Added [`GeckoView.onTouchEventForResult`][71.15] and modified
   [`PanZoomController.onTouchEvent`][71.16] to return how the touch event was handled. This
   allows apps to know if an event is handled by touch event listeners in web content. The methods in `PanZoomController` now return `int` instead of `boolean`.
+- Added [`GeckoSession.purgeHistory`][71.17] allowing apps to clear a session's history.
+  ([bug 1583265]({{bugzilla}}1583265))
+- Added [`GeckoRuntimeSettings.Builder#forceUserScalableEnabled`][71.18] to control whether or
+  not to force user scalable zooming.
+  ([bug 1540615]({{bugzilla}}1540615))
+- ⚠️ Moved Autofill related methods from `SessionTextInput` and `GeckoSession.TextInputDelegate`
+  into `GeckoSession` and `AutofillDelegate`.
+- Added [`GeckoSession.getAutofillElements()`][71.19], which is a new method for getting
+  an autofill virtual structure without using `ViewStructure`. It relies on a new class,
+  [`AutofillElement`][71.20], for representing the virtual tree.
+- Added [`GeckoView.setAutofillEnabled`][71.21] for controlling whether or not the `GeckoView`
+  instance participates in Android autofill. When enabled, this connects an `AutofillDelegate`
+  to the session it holds.
 
 [71.1]: {{javadoc_uri}}/RuntimeTelemetry.Delegate.html#onBooleanScalar-org.mozilla.geckoview.RuntimeTelemetry.Metric-
 [71.2]: {{javadoc_uri}}/RuntimeTelemetry.Delegate.html#onLongScalar-org.mozilla.geckoview.RuntimeTelemetry.Metric-
@@ -57,6 +70,11 @@ exclude: true
 [71.13]: {{javadoc_uri}}/GeckoSession.ContentDelegate.html#onFirstContentfulPaint-org.mozilla.geckoview.GeckoSession-
 [71.15]: {{javadoc_uri}}/GeckoView.html#onTouchEventForResult-android.view.MotionEvent-
 [71.16]: {{javadoc_uri}}/PanZoomController.html#onTouchEvent-android.view.MotionEvent-
+[71.17]: {{javadoc_uri}}/GeckoSession.html#purgeHistory--
+[71.18]: {{javadoc_uri}}/GeckoRuntimeSettings.Builder.html#forceUserScalableEnabled-boolean-
+[71.19]: {{javadoc_uri}}/GeckoSession.html#getAutofillElements--
+[71.20]: {{javadoc_uri}}/AutofillElement.html
+[71.21]: {{javadoc_uri}}/GeckoView.html#setAutofillEnabled-boolean-
 
 ## v70
 - Added API for session context assignment
@@ -379,4 +397,4 @@ exclude: true
 [65.24]: {{javadoc_uri}}/CrashReporter.html#sendCrashReport-android.content.Context-android.os.Bundle-java.lang.String-
 [65.25]: {{javadoc_uri}}/GeckoResult.html
 
-[api-version]: 68710f52723909eea09a02b94b618a527cc9dfc8
+[api-version]: ed4a802bc348a8df4b2103cf0dd8d63e76e841bb

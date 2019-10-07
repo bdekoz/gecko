@@ -154,7 +154,6 @@ const PRIVILEGED_PERMS = new Set([
   "urlbar",
   "normandyAddonStudy",
   "networkStatus",
-  "memory",
 ]);
 
 /**
@@ -1900,6 +1899,7 @@ class Extension extends ExtensionData {
       whiteListedHosts: this.whiteListedHosts.patterns.map(pat => pat.pattern),
       permissions: this.permissions,
       optionalPermissions: this.optionalPermissions,
+      isPrivileged: this.isPrivileged,
     };
   }
 
@@ -2145,6 +2145,7 @@ class Extension extends ExtensionData {
       id: this.id,
       mozExtensionHostname: this.uuid,
       baseURL: this.resourceURL,
+      isPrivileged: this.isPrivileged,
       allowedOrigins: new MatchPatternSet([]),
       localizeCallback() {},
       readyPromise,
@@ -2158,6 +2159,7 @@ class Extension extends ExtensionData {
     pendingExtensions.set(this.id, {
       mozExtensionHostname: this.uuid,
       baseURL: this.resourceURL,
+      isPrivileged: this.isPrivileged,
     });
     sharedData.set("extensions/pending", pendingExtensions);
 

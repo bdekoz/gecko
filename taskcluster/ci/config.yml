@@ -33,6 +33,7 @@ treeherder:
         'Fxfn-l-1proc': 'Firefox functional tests (local) without e10s'
         'Fxfn-r': 'Firefox functional tests (remote)'
         'Fxfn-r-1proc': 'Firefox functional tests (remote) without e10s'
+        'iris': 'Iris testing suite'
         'M': 'Mochitests'
         'M-1proc': 'Mochitests without e10s'
         'M-fis': 'Mochitests with fission enabled'
@@ -105,6 +106,7 @@ treeherder:
         'Nexus 5-L': 'Nexus 5-L Device Image'
         'I': 'Docker Image Builds'
         'TL': 'Toolchain builds for Linux 64-bits'
+        'TL32': 'Toolchain builds for Linux 32-bits'
         'TM': 'Toolchain builds for OSX'
         'TMW': 'Toolchain builds for Windows MinGW'
         'TW32': 'Toolchain builds for Windows 32-bits'
@@ -257,13 +259,13 @@ scriptworker:
             - 'project:releng:beetmover:bucket:dep'
             - 'project:releng:beetmover:bucket:dep-partner'
             - 'project:releng:beetmover:bucket:maven-staging'
-        'scriptworker-prov-v1/balrogworker-v1':
+        'scriptworker-k8s/gecko-3-balrog':
             - 'project:releng:balrog:server:nightly'
             - 'project:releng:balrog:server:aurora'
             - 'project:releng:balrog:server:beta'
             - 'project:releng:balrog:server:release'
             - 'project:releng:balrog:server:esr'
-        'scriptworker-prov-v1/balrog-dev':
+        'scriptworker-k8s/gecko-1-balrog':
             - 'project:releng:balrog:server:dep'
 
 partner-urls:
@@ -326,15 +328,15 @@ workers:
             os: linux
             worker-type: 'gecko-{level}-{alias}'
         linux-depsigning:
-            provisioner: scriptworker-prov-v1
+            provisioner: scriptworker-k8s
             implementation: scriptworker-signing
             os: linux
-            worker-type: depsigning
+            worker-type: gecko-t-signing
         linux-signing:
-            provisioner: scriptworker-prov-v1
+            provisioner: scriptworker-k8s
             implementation: scriptworker-signing
             os: linux
-            worker-type: signing-linux-v1
+            worker-type: gecko-3-signing
         mac-depsigning:
             provisioner: scriptworker-prov-v1
             implementation: scriptworker-iscript
@@ -371,6 +373,11 @@ workers:
             os: macosx
             worker-type: 'gecko-{alias}'
         t-osx-1014:
+            provisioner: releng-hardware
+            implementation: generic-worker
+            os: macosx
+            worker-type: 'gecko-{alias}'
+        t-osx-1014-power:
             provisioner: releng-hardware
             implementation: generic-worker
             os: macosx

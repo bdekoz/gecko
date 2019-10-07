@@ -1692,9 +1692,6 @@ pub struct PrimitiveScratchBuffer {
     /// verify invalidation in wrench reftests. Only collected in testing.
     pub recorded_dirty_regions: Vec<RecordedDirtyRegion>,
 
-    /// List of dirty rects for the cached pictures in this document.
-    pub dirty_rects: Vec<DeviceIntRect>,
-
     /// List of debug display items for rendering.
     pub debug_items: Vec<DebugItem>,
 }
@@ -1709,7 +1706,6 @@ impl PrimitiveScratchBuffer {
             segment_instances: SegmentInstanceStorage::new(0),
             gradient_tiles: GradientTileStorage::new(0),
             recorded_dirty_regions: Vec::new(),
-            dirty_rects: Vec::new(),
             debug_items: Vec::new(),
             prim_info: Vec::new(),
         }
@@ -1746,18 +1742,19 @@ impl PrimitiveScratchBuffer {
         self.debug_items.clear();
 
         assert!(self.recorded_dirty_regions.is_empty(), "Should have sent to Renderer");
-        assert!(self.dirty_rects.is_empty(), "Should have sent to Renderer");
     }
 
     #[allow(dead_code)]
     pub fn push_debug_rect(
         &mut self,
         rect: DeviceRect,
-        color: ColorF,
+        outer_color: ColorF,
+        inner_color: ColorF,
     ) {
         self.debug_items.push(DebugItem::Rect {
             rect,
-            color,
+            outer_color,
+            inner_color,
         });
     }
 
@@ -2226,7 +2223,17 @@ impl PrimitiveStore {
                         };
                         if debug_color.a != 0.0 {
                             let debug_rect = clipped_world_rect * frame_context.global_device_pixel_scale;
-                            frame_state.scratch.push_debug_rect(debug_rect, debug_color);
+                            frame_state.scratch.push_debug_rect(debug_rect, debug_color, debug_color.scale_alpha(0.5));
+                        }
+                    } else if frame_context.debug_flags.contains(::api::DebugFlags::OBSCURE_IMAGES) {
+                        if matches!(prim_instance.kind, PrimitiveInstanceKind::Image { .. } |
+                                                        PrimitiveInstanceKind::YuvImage { .. })
+                        {
+                            // We allow "small" images, since they're generally UI elements.
+                            let rect = clipped_world_rect * frame_context.global_device_pixel_scale;
+                            if rect.size.width > 70.0 && rect.size.height > 70.0 {
+                                frame_state.scratch.push_debug_rect(rect, debug_colors::PURPLE, debug_colors::PURPLE);
+                            }
                         }
                     }
 
@@ -2303,10 +2310,8 @@ impl PrimitiveStore {
 
                 // Build the dirty region(s) for this tile cache.
                 tile_cache.post_update(
-                    frame_state.resource_cache,
-                    frame_state.gpu_cache,
                     frame_context,
-                    frame_state.scratch,
+                    frame_state,
                 );
 
                 pic.tile_cache = Some(tile_cache);

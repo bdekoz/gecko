@@ -82,6 +82,7 @@ mod box_shadow;
 mod capture;
 mod clip;
 mod clip_scroll_tree;
+mod composite;
 mod debug_colors;
 mod debug_font_data;
 mod debug_render;
@@ -210,7 +211,7 @@ pub use crate::renderer::{
     AsyncPropertySampler, CpuProfile, DebugFlags, OutputImageHandler, RendererKind, ExternalImage,
     ExternalImageHandler, ExternalImageSource, GpuProfile, GraphicsApi, GraphicsApiInfo,
     PipelineInfo, Renderer, RendererOptions, RenderResults, RendererStats, SceneBuilderHooks,
-    ThreadListener, ShaderPrecacheFlags, MAX_VERTEX_TEXTURE_WIDTH,
+    ThreadListener, ShaderPrecacheFlags, MAX_VERTEX_TEXTURE_WIDTH, PresentConfig,
 };
 pub use crate::screen_capture::{AsyncScreenshotHandle, RecordedFrameHandle};
 pub use crate::shade::{Shaders, WrShaders};
